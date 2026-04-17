@@ -1,6 +1,6 @@
 # gemara-publish-oci
 
-GitHub Action for **transport only**: push a Gemara OCI artifact to a container registry. **Pack, manifest shape, and media types** belong in **[go-gemara](https://github.com/gemaraproj/go-gemara)** ([issue #60](https://github.com/gemaraproj/go-gemara/issues/60)). This repo is intentionally small: **`action.yml` only** (one composite `run` step; no extra scripts) — see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+GitHub Action for **transport only**: push a Gemara OCI artifact to a container registry. **Pack, manifest shape, and media types** belong in **[go-gemara](https://github.com/gemaraproj/go-gemara)** ([issue #60](https://github.com/gemaraproj/go-gemara/issues/60)). This repo is intentionally small: **`action.yml` only** (one composite `run` step; no extra scripts) — see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**. For **maintainer review** (scope, SDK split, open questions), see **[docs/DESIGN-FOR-REVIEW.md](docs/DESIGN-FOR-REVIEW.md)**.
 
 ## Principles (SDK vs. this action)
 
