@@ -1,0 +1,79 @@
+name: Publish Gemara OCI bundle
+description: >-
+  Assemble and pack a Gemara OCI bundle with the go-gemara SDK (bundle.Assemble,
+  bundle.Pack into memory), then copy to the registry with oras-go oras.Copy
+  (same idea as oras cp from a prepacked local store to a remote repo). Does not
+  use the ORAS CLI for manifests or media types.
+author: Gemara Community
+
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  registry:
+    description: OCI registry hostname (for example ghcr.io or docker.io)
+    required: true
+  repository:
+    description: >-
+      Repository name without registry (for example myorg/bundles/my-policy). May
+      contain slashes.
+    required: true
+  tag:
+    description: Tag for the bundle (for example v1.0.0 or latest)
+    required: true
+  file:
+    description: Path to the root Gemara YAML file, relative to working_directory
+    required: true
+  username:
+    description: Registry username (for GHCR often github.actor)
+    required: true
+  password:
+    description: Registry password or token (for GHCR often secrets.GITHUB_TOKEN)
+    required: true
+  validate:
+    description: If true (default), validate the root document with gemara.Load before assemble
+    required: false
+    default: "true"
+  bundle_version:
+    description: Value stored in the bundle manifest field bundle-version
+    required: false
+    default: "1"
+  gemara_version:
+    description: Value stored in the bundle manifest field gemara-version (optional)
+    required: false
+    default: ""
+  working_directory:
+    description: Working directory for resolving file paths, relative to the workspace
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.25.x"
+
+    - name: Publish Gemara bundle
+      shell: bash
+      env:
+        GEMARA_REGISTRY_PASSWORD: ${{ inputs.password }}
+      run: |
+        set -euo pipefail
+        cd "${GITHUB_WORKSPACE}/${{ inputs.working_directory }}"
+        FILE="$(realpath "${{ inputs.file }}")"
+        VALIDATE_FLAG=""
+        if [[ "${{ inputs.validate }}" != "true" ]]; then
+          VALIDATE_FLAG="-validate=false"
+        fi
+        go run "${{ github.action_path }}/tools/publish" \
+          -registry="${{ inputs.registry }}" \
+          -repository="${{ inputs.repository }}" \
+          -tag="${{ inputs.tag }}" \
+          -file="$FILE" \
+          -username="${{ inputs.username }}" \
+          -bundle-version="${{ inputs.bundle_version }}" \
+          -gemara-version="${{ inputs.gemara_version }}" \
+          $VALIDATE_FLAG

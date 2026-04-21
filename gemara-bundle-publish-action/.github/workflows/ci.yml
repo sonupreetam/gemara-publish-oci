@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  publish-tool:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+      - name: Build publish helper
+        working-directory: tools/publish
+        run: go vet ./... && go build -o /dev/null .
+
+  docker-publish-sketch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tool image (examples/Dockerfile.publish.sketch)
+        run: docker build -f examples/Dockerfile.publish.sketch -t gemara-bundle-publish:ci .

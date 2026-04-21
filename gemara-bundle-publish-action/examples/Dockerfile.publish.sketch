@@ -1,0 +1,20 @@
+# ---------------------------------------------------------------------------
+# Sketch — build from repository root:
+#   docker build -f examples/Dockerfile.publish.sketch -t gemara-bundle-publish:local .
+#
+# Push to GHCR when ready, then pin by digest in compose or workflows.
+# ---------------------------------------------------------------------------
+
+FROM golang:1.25-alpine AS build
+RUN apk add --no-cache git ca-certificates
+WORKDIR /src/tools/publish
+COPY tools/publish/go.mod tools/publish/go.sum ./
+RUN go mod download
+COPY tools/publish/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /gemara-bundle-publish .
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=build /gemara-bundle-publish /gemara-bundle-publish
+USER nonroot:nonroot
+ENTRYPOINT ["/gemara-bundle-publish"]
