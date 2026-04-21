@@ -1,0 +1,23 @@
+# ---------------------------------------------------------------------------
+# Sketch — one-shot publish from a checkout (optional local smoke test).
+#
+# From repository root:
+#   export GEMARA_REGISTRY_PASSWORD=...
+#   export REGISTRY=ghcr.io REPOSITORY=org/bundles/name TAG=v0.1.0 USERNAME=you
+#   docker compose -f examples/docker-compose.publish.sketch.yml run --rm bundle-publish \
+#     -registry=$REGISTRY -repository=$REPOSITORY -tag=$TAG \
+#     -file=policies/policy.yaml -username=$USERNAME
+#
+# Or build the image first (see Dockerfile.publish.sketch), set image: to your GHCR ref.
+# ---------------------------------------------------------------------------
+
+services:
+  bundle-publish:
+    build:
+      context: ..
+      dockerfile: examples/Dockerfile.publish.sketch
+    environment:
+      GEMARA_REGISTRY_PASSWORD: ${GEMARA_REGISTRY_PASSWORD:?set GEMARA_REGISTRY_PASSWORD}
+    volumes:
+      - ..:/workspace:ro
+    working_dir: /workspace

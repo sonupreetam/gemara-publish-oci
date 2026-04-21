@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------
+# Example caller workflow — pin the action ref (and optionally pin Go if you
+# fork the action). Copy to .github/workflows/ in your Gemara content repo.
+# ---------------------------------------------------------------------------
+
+name: Publish Gemara bundle
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin a semver tag or full commit SHA — same idea as pinning a container image.
+      - uses: sonupreetam/gemara-publish-oci@gemara-bundle-publish-replacement
+        id: publish
+        with:
+          registry: ghcr.io
+          repository: ${{ github.repository_owner }}/bundles/my-policy
+          tag: ${{ github.ref_name }}
+          file: policies/policy.yaml
+          bundle_version: "1"
+          gemara_version: v1.0.0
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bundle digest
+        run: echo "${{ steps.publish.outputs.digest }}"

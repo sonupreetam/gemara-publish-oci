@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# Optional caller workflow — publish using a prebuilt GHCR image (no go run).
+#
+# Prerequisites:
+#   - Image built from examples/Dockerfile.publish.sketch and pushed, e.g.
+#     ghcr.io/gemaraproj/gemara-bundle-publish-tool:v0.1.0
+#   - Replace IMAGE below; pin by digest in production.
+#
+# Copy to .github/workflows/ in your Gemara content repo.
+# ---------------------------------------------------------------------------
+
+name: Publish Gemara bundle (Docker)
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/gemaraproj/gemara-bundle-publish-tool:v0.1.0
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish bundle
+        id: publish
+        env:
+          GEMARA_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          docker pull "${IMAGE}"
+          LOG="${RUNNER_TEMP}/gemara-publish.log"
+          docker run --rm \
+            -e GEMARA_REGISTRY_PASSWORD \
+            -v "${GITHUB_WORKSPACE}:/workspace:ro" \
+            -w /workspace \
+            "${IMAGE}" \
+            -registry=ghcr.io \
+            -repository=${{ github.repository_owner }}/bundles/my-policy \
+            -tag=${{ github.ref_name }} \
+            -file=/workspace/policies/policy.yaml \
+            -username=${{ github.actor }} 2>&1 | tee "${LOG}"
+          grep -q '^digest=' "${LOG}"
+          grep '^digest=' "${LOG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Bundle digest
+        run: echo "${{ steps.publish.outputs.digest }}"
