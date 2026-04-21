@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -49,7 +50,12 @@ jobs:
           layout_ref: v1
           plain_http: true
 
+      # sdk mode is not exercised here: a smoke test needs a real push to DEST so
+      # digest resolution succeeds; sdk_args is word-split in action.yml, so a
+      # bash -c one-liner is fragile. See specs/001-gemara-publish-oci-action/plan.md.
+
       - name: Verify digest output
         run: |
           test -n "${{ steps.publish.outputs.digest }}"
           echo "digest=${{ steps.publish.outputs.digest }}"
+          echo "${{ steps.publish.outputs.digest }}" | grep -qE '^sha256:[a-f0-9]{64}$'
