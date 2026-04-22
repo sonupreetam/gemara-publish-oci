@@ -60,6 +60,7 @@ runs:
       uses: actions/setup-go@v5
       with:
         go-version: "1.25.x"
+        cache-dependency-path: tools/publish/go.sum
 
     - name: Publish Gemara bundle
       id: publish
@@ -74,7 +75,8 @@ runs:
         if [[ "${{ inputs.validate }}" != "true" ]]; then
           VALIDATE_FLAG="-validate=false"
         fi
-        go run "${{ github.action_path }}/tools/publish" \
+        # Module lives in tools/publish/; CWD is caller workspace (often no root go.mod).
+        go run -C "${{ github.action_path }}/tools/publish" . \
           -registry="${{ inputs.registry }}" \
           -repository="${{ inputs.repository }}" \
           -tag="${{ inputs.tag }}" \
