@@ -34,7 +34,7 @@ Expect `digest=sha256:…` on success.
 
 ## Two-phase (layout + transport only)
 
-To push a **pre-built OCI layout** with ORAS CLI glue, use a transport-only action such as [gemara-publish-oci](https://github.com/sonupreetam/gemara-publish-oci) (`layout-copy`). Do not reimplement **pack** in that step.
+To push a **pre-built OCI layout** with **only** `oras cp`–style glue, use a small ORAS-based workflow, or an **older ref** of this repository from before the bundle default landed. Do not reimplement **pack** in that step.
 
 ## Where to read more
 

@@ -1,4 +1,4 @@
-# Manual end-to-end publish to GHCR (SC-001 / spec E2E). Run from Actions tab.
+# Manual end-to-end publish to GHCR. Run from Actions tab.
 name: E2E publish to GHCR
 
 on:
@@ -12,7 +12,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Publish minimal bundle
         id: publish

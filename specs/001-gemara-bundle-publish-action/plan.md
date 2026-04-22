@@ -4,11 +4,11 @@
 
 **Input**: Feature specification from `specs/001-gemara-bundle-publish-action/spec.md`
 
-**Speckit / monorepo paths**: Scripts under `oci-artifact/.specify/` default to `FEATURE_DIR=$REPO_ROOT/specs/001-*`. This feature actually lives at **`gemara-bundle-publish-action/specs/001-gemara-bundle-publish-action/`**. Use that path for `SPEC` / `PLAN` / `TASKS`, or symlink `oci-artifact/specs` → `gemara-bundle-publish-action/specs`, until Speckit is configured for nested packages. Use git branch **`001-gemara-bundle-publish-action`** at the workspace root when running `check-prerequisites.sh` / `setup-plan.sh`.
+**Layout**: The composite action and `tools/publish` live at the **repository root** of [sonupreetam/gemara-publish-oci](https://github.com/sonupreetam/gemara-publish-oci) (this spec path is `specs/001-gemara-bundle-publish-action/` at that root). Older notes that referred to a nested `gemara-bundle-publish-action/` directory are obsolete.
 
 ## Summary
 
-Deliver a **composite GitHub Action** that publishes **Gemara OCI bundles** from a **root Gemara YAML** file using **go-gemara** `bundle` APIs (assemble, pack) and **oras-go** registry transport (`oras.Copy`), aligned with [go-gemara#63](https://github.com/gemaraproj/go-gemara/issues/63), [go-gemara#60](https://github.com/gemaraproj/go-gemara/issues/60), and [PR #62](https://github.com/gemaraproj/go-gemara/pull/62). Expose **`digest`** after push; keep **HTTPS-only** for v1 per clarifications; document **two-phase** transport via companion repos such as [gemara-publish-oci](https://github.com/sonupreetam/gemara-publish-oci).
+Deliver a **composite GitHub Action** that publishes **Gemara OCI bundles** from a **root Gemara YAML** file using **go-gemara** `bundle` APIs (assemble, pack) and **oras-go** registry transport (`oras.Copy`), aligned with [go-gemara#63](https://github.com/gemaraproj/go-gemara/issues/63), [go-gemara#60](https://github.com/gemaraproj/go-gemara/issues/60), and [PR #62](https://github.com/gemaraproj/go-gemara/pull/62). Expose **`digest`** after push; keep **HTTPS-only** for v1 per clarifications; document **two-phase** transport (layout + `oras cp` only) as distinct from this repo’s default **bundle** path (see root README).
 
 ## Technical Context
 
@@ -30,7 +30,7 @@ Deliver a **composite GitHub Action** that publishes **Gemara OCI bundles** from
 - **II. Spec-first**: **Pass** — [spec.md](./spec.md) and [checklists/requirements.md](./checklists/requirements.md) track scope; clarifications recorded.
 - **III. CI safety and traceability**: **Pass** — password via env; `outputs.digest`; SDK pin documented in `go.mod` / README.
 - **IV. Testing discipline**: **Pass** — `.github/workflows/ci.yml` (vet, build, negative); `.github/workflows/e2e-ghcr.yml` for manual E2E.
-- **V. Simplicity / transport split**: **Pass** — single-step default; README documents two-phase + [gemara-publish-oci](https://github.com/sonupreetam/gemara-publish-oci).
+- **V. Simplicity / transport split**: **Pass** — single-step default; README documents two-phase vs bundle default.
 
 *Post-design re-check: unchanged — Phase 1 artifacts document interfaces only; no new contract logic in the action layer.*
 

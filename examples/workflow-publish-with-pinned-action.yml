@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Pin a semver tag or full commit SHA — same idea as pinning a container image.
-      - uses: gemaraproj/gemara-bundle-publish-action@v1
+      - uses: sonupreetam/gemara-publish-oci@v1
         id: publish
         with:
           registry: ghcr.io

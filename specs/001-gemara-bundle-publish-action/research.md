@@ -28,7 +28,7 @@
 
 ## 4. Single-step vs two-phase publish
 
-**Decision**: Primary path remains **root YAML → memory pack → `oras.Copy`**. Document **layout + `oras cp`** as a **separate** flow using [gemara-publish-oci](https://github.com/sonupreetam/gemara-publish-oci) `layout-copy` (or future SDK disk export) without duplicating pack logic in transport.
+**Decision**: Primary path remains **root YAML → memory pack → `oras.Copy`**. Document **layout + `oras cp`** (transport-only) as a **separate** flow: use an **older ref** of this repository if it still has a layout-copy-only action, a small **ORAS-only** step, or future **SDK disk export**—without duplicating **pack** logic in transport.
 
 **Rationale**: Constitution **V** and User Story 4.
 

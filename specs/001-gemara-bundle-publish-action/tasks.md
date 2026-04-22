@@ -17,8 +17,8 @@
 
 **Purpose**: Confirm Speckit artifact layout and repo branch hygiene.
 
-- [x] T001 Verify directory `gemara-bundle-publish-action/specs/001-gemara-bundle-publish-action/` contains `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, `tasks.md`, `checklists/requirements.md`, and `contracts/composite-action.md`
-- [x] T002 Create git branch `001-gemara-bundle-publish-action` (or equivalent Speckit pattern) from `gemara-bundle-publish-action` repo root so `.specify/scripts/bash/check-prerequisites.sh --json` succeeds when run from `oci-artifact` workspace root
+- [x] T001 Verify directory `specs/001-gemara-bundle-publish-action/` contains `spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, `tasks.md`, `checklists/requirements.md`, and `contracts/composite-action.md`
+- [x] T002 Create git branch `001-gemara-bundle-publish-action` (or equivalent) from this repository’s root
 
 ---
 
@@ -28,8 +28,8 @@
 
 **Checkpoint**: Complete before treating user stories as release-ready.
 
-- [x] T003 [P] Reconcile `gemara-bundle-publish-action/specs/001-gemara-bundle-publish-action/checklists/requirements.md` checkboxes with current `spec.md` and implementation (mark digest/FR-008 items accurately)
-- [x] T004 [P] Diff `gemara-bundle-publish-action/action.yml` against `gemara-bundle-publish-action/specs/001-gemara-bundle-publish-action/contracts/composite-action.md`; update `contracts/composite-action.md` if inputs, outputs, or behavioral bullets drift
+- [x] T003 [P] Reconcile `checklists/requirements.md` checkboxes with current `spec.md` and implementation (mark digest/FR-008 items accurately)
+- [x] T004 [P] Diff `action.yml` against `contracts/composite-action.md`; update `contracts/composite-action.md` if inputs, outputs, or behavioral bullets drift
 
 ---
 
@@ -39,10 +39,10 @@
 
 **Independent Test**: Workflow + registry resolve by tag; CI negative path passes.
 
-- [x] T005 [US1] Audit `gemara-bundle-publish-action/tools/publish/main.go` for FR-002 (only `bundle.Assemble`, `bundle.Pack`, `oras.Copy` / remote auth—no parallel OCI layout assembly); fix regressions if found
-- [x] T006 [P] [US1] Confirm `.github/workflows/ci.yml` job `publish-invalid-root` meets SC-002 (non-zero exit, no push) using `gemara-bundle-publish-action/tools/publish/testdata/invalid-root.yaml`
-- [x] T007 [P] [US1] Document mapping-reference / `fetcher.URI` assembly expectations for consumers in `gemara-bundle-publish-action/README.md` (acceptance scenario 2)
-- [x] T008 [US1] Run `go vet` and `go build` in `gemara-bundle-publish-action/tools/publish/` locally or via CI to confirm publish tool builds after any edits
+- [x] T005 [US1] Audit `tools/publish/main.go` for FR-002 (only `bundle.Assemble`, `bundle.Pack`, `oras.Copy` / remote auth—no parallel OCI layout assembly); fix regressions if found
+- [x] T006 [P] [US1] Confirm `.github/workflows/ci.yml` job `publish-invalid-root` meets SC-002 (non-zero exit, no push) using `tools/publish/testdata/invalid-root.yaml`
+- [x] T007 [P] [US1] Document mapping-reference / `fetcher.URI` assembly expectations for consumers in `README.md` (acceptance scenario 2)
+- [x] T008 [US1] Run `go vet` and `go build` in `tools/publish/` locally or via CI to confirm publish tool builds after any edits
 
 **Checkpoint**: US1 satisfied when CI green and README covers extends/imports via URI.
 
@@ -54,9 +54,9 @@
 
 **Independent Test**: Reader can find action ref + SDK pin from repo files.
 
-- [x] T009 [US2] Add or extend `gemara-bundle-publish-action/CHANGELOG.md` with a release-notes template listing **action git ref** and **go-gemara** `require` / `replace` line copied from `gemara-bundle-publish-action/tools/publish/go.mod`
-- [x] T010 [P] [US2] Audit `gemara-bundle-publish-action/README.md` sections “Pinning, releases, and reproducibility” and “SDK version pin” for accuracy vs `tools/publish/go.mod`
-- [x] T011 [P] [US2] Verify `gemara-bundle-publish-action/examples/workflow-publish-with-pinned-action.yml` uses `id: publish` and documents semver/SHA pinning in comments
+- [x] T009 [US2] Add or extend `CHANGELOG.md` with a release-notes template listing **action git ref** and **go-gemara** `require` / `replace` line copied from `tools/publish/go.mod`
+- [x] T010 [P] [US2] Audit `README.md` sections “Pinning, releases, and reproducibility” and “SDK version pin” for accuracy vs `tools/publish/go.mod`
+- [x] T011 [P] [US2] Verify `examples/workflow-publish-with-pinned-action.yml` uses `id: publish` and documents semver/SHA pinning in comments
 
 **Checkpoint**: US2 satisfied when CHANGELOG or README gives a copy-pasteable SDK pin story.
 
@@ -68,8 +68,8 @@
 
 **Independent Test**: Example workflow echoes digest; E2E asserts non-empty `sha256:` prefix.
 
-- [x] T012 [US3] Verify `gemara-bundle-publish-action/action.yml` exposes `outputs.digest` from `steps.publish.outputs.digest` and `tools/publish/main.go` writes `GITHUB_OUTPUT` digest key after remote `Resolve`
-- [x] T013 [P] [US3] Audit `gemara-bundle-publish-action/examples/workflow-publish-with-pinned-action.yml` and `examples/workflow-publish-with-docker-image.yml` for digest consumption examples
+- [x] T012 [US3] Verify `action.yml` exposes `outputs.digest` from `steps.publish.outputs.digest` and `tools/publish/main.go` writes `GITHUB_OUTPUT` digest key after remote `Resolve`
+- [x] T013 [P] [US3] Audit `examples/workflow-publish-with-pinned-action.yml` and `examples/workflow-publish-with-docker-image.yml` for digest consumption examples
 - [x] T014 [US3] **E2E / SC-004**: Automated job **`e2e-publish-ghcr`** in `.github/workflows/ci.yml` performs the same publish + digest checks as `e2e-ghcr.yml` on push and same-repo PRs; maintainers may still use `e2e-ghcr.yml` (`workflow_dispatch`). Record first successful run URL under `plan.md` **E2E evidence**.
 
 **Checkpoint**: US3 satisfied when digest appears in logs and optional E2E run documented.
@@ -82,8 +82,8 @@
 
 **Independent Test**: README links transport-only action; no duplicate pack in this repo.
 
-- [x] T015 [US4] Confirm `gemara-bundle-publish-action/README.md` “Two-phase publish” links `https://github.com/sonupreetam/gemara-publish-oci` and states SDK/transport boundary
-- [x] T016 [P] [US4] Confirm `gemara-bundle-publish-action/examples/README.md` references transport-only workflow and E2E layout expectations at high level
+- [x] T015 [US4] Confirm `README.md` “Two-phase publish” documents transport-only / layout flows as separate from the default **bundle** path
+- [x] T016 [P] [US4] Confirm `examples/README.md` references transport-only workflow and E2E layout expectations at high level
 
 **Checkpoint**: US4 satisfied when cross-links exist and remain accurate.
 
@@ -91,11 +91,11 @@
 
 ## Phase 7: Polish and governance (cross-cutting)
 
-- [x] T017 [P] Update `gemara-bundle-publish-action/specs/001-gemara-bundle-publish-action/spec.md` **Status** to `Ready` with SC-004 satisfied by automated **`e2e-publish-ghcr`** (and optional `plan.md` run URL after first green CI)
-- [x] T018 Append E2E evidence (workflow run URL or date + digest sample) to `gemara-bundle-publish-action/specs/001-gemara-bundle-publish-action/plan.md` Phase 0/1 footer or linked note
-- [x] T019 [P] Add short “Governance / #63” subsection to `gemara-bundle-publish-action/README.md` pointing to [go-gemara#63](https://github.com/gemaraproj/go-gemara/issues/63) for **maintainers** and **Marketplace** (program tasks outside this spec’s FRs)
-- [ ] T020 [P] When `github.com/gemaraproj/go-gemara` publishes a **tagged** release that **includes** `github.com/gemaraproj/go-gemara/bundle`, remove `replace` in `gemara-bundle-publish-action/tools/publish/go.mod`, bump `require`, run `go mod tidy`, and document in `CHANGELOG.md`. **Blocked (2026-04-21)**: `go get …@v0.3.0` and `…@main` (`v0.3.1-0.20260416211637-ea99f6000be6`) do not contain the `bundle` package—`replace` to `github.com/jpower432/go-gemara` remains required until upstream ships bundle APIs on `gemaraproj/go-gemara`.
-- [x] T021 [P] **FR-006 audit**: Confirm `gemara-bundle-publish-action/action.yml` and `tools/publish/main.go` never log `password`, `GEMARA_REGISTRY_PASSWORD`, or raw credential-bearing HTTP traces; record result in `gemara-bundle-publish-action/specs/001-gemara-bundle-publish-action/checklists/speckit-analyze-remediation.md` (G4 row)
+- [x] T017 [P] Update `spec.md` **Status** to `Ready` with SC-004 satisfied by automated **`e2e-publish-ghcr`** (and optional `plan.md` run URL after first green CI)
+- [x] T018 Append E2E evidence (workflow run URL or date + digest sample) to `plan.md` Phase 0/1 footer or linked note
+- [x] T019 [P] Add short “Governance / #63” subsection to `README.md` pointing to [go-gemara#63](https://github.com/gemaraproj/go-gemara/issues/63) for **maintainers** and **Marketplace** (program tasks outside this spec’s FRs)
+- [ ] T020 [P] When `github.com/gemaraproj/go-gemara` publishes a **tagged** release that **includes** `github.com/gemaraproj/go-gemara/bundle`, remove `replace` in `tools/publish/go.mod`, bump `require`, run `go mod tidy`, and document in `CHANGELOG.md`. **Blocked (2026-04-21)**: `go get …@v0.3.0` and `…@main` (`v0.3.1-0.20260416211637-ea99f6000be6`) do not contain the `bundle` package—`replace` to `github.com/jpower432/go-gemara` remains required until upstream ships bundle APIs on `gemaraproj/go-gemara`.
+- [x] T021 [P] **FR-006 audit**: Confirm `action.yml` and `tools/publish/main.go` never log `password`, `GEMARA_REGISTRY_PASSWORD`, or raw credential-bearing HTTP traces; record result in `checklists/speckit-analyze-remediation.md` (G4 row)
 
 ---
 

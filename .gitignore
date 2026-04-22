@@ -7,3 +7,16 @@
 # Local monorepo checkouts; do not re-record as submodules (see broken 160000 without .gitmodules)
 go-gemara/
 gemara-content-service/
+
+# Go (tools/publish)
+*.exe
+*.test
+*.out
+vendor/
+
+# Local env / editor
+.env
+.env.*
+.idea/
+*.swp
+*.log

@@ -1,4 +1,4 @@
-module github.com/gemaraproj/gemara-bundle-publish-action/tools/publish
+module github.com/sonupreetam/gemara-publish-oci/tools/publish
 
 // PR #62 (bundle Pack/Assemble + oras-go): gemaraproj/go-gemara@v0.3.0 and @main
 // (checked 2026-04-21) do not ship github.com/gemaraproj/go-gemara/bundle yet.

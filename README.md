@@ -1,46 +1,38 @@
-# gemara-publish-oci
+# gemara-publish-oci (bundle publish)
 
-GitHub Action for **transport only**: push a Gemara OCI artifact to a container registry. **Pack, manifest shape, and media types** belong in **[go-gemara](https://github.com/gemaraproj/go-gemara)** ([issue #60](https://github.com/gemaraproj/go-gemara/issues/60)). This repo is intentionally small: **`action.yml` only** (one composite `run` step; no extra scripts) — see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**. For **maintainer review** (scope, SDK split, open questions), see **[docs/DESIGN-FOR-REVIEW.md](docs/DESIGN-FOR-REVIEW.md)**.
+GitHub Action: publish **Gemara OCI bundles** with the **go-gemara** SDK ([PR #62](https://github.com/gemaraproj/go-gemara/pull/62) `bundle` APIs + **oras-go**), in line with [go-gemara issue #63](https://github.com/gemaraproj/go-gemara/issues/63) and the OCI work in [go-gemara #60](https://github.com/gemaraproj/go-gemara/issues/60).
 
-## Principles (SDK vs. this action)
+**SDK owns the contract.** Manifest shape, **media types**, and **layer assembly** are defined in **go-gemara** (`bundle.Pack`, `bundle.Unpack`, …). This repository supplies the **composite action** ([`action.yml`](action.yml)), [`tools/publish`](tools/publish) (`go run` on the runner), and CI. The Go **module** for the tool is **`github.com/sonupreetam/gemara-publish-oci/tools/publish`**.
 
-- **SDK** = Pack / Unpack + `oras.Copy` semantics (what gets pushed).
-- **Action** = registry auth + run a **released** CLI (ORAS today; **`gemara`** when available) + expose **`digest`**.
-- **Do not** encode layer-level `oras push` assembly here; that stays in the SDK or org-infra until the contract is stable.
+### Shippable today
 
-## Modes (`publish_mode`)
+1. **Composite action** at repo root — `go run` of [`tools/publish`](tools/publish); inputs as below; SDK pin in [`tools/publish/go.mod`](tools/publish/go.mod).
+2. **Optional tool image** ([`examples/Dockerfile.publish.sketch`](examples/Dockerfile.publish.sketch) + [`examples/workflow-publish-with-docker-image.yml`](examples/workflow-publish-with-docker-image.yml)).
 
-| Value | Behavior |
-|-------|----------|
-| **`layout-copy`** (default) | Installs ORAS and runs **`oras cp --from-oci-layout`** to the registry. Use while Pack exports an **OCI image layout** on disk (same family of layout **complyctl** caches — see [001 research](https://github.com/complytime/complyctl/blob/main/specs/001-gemara-native-workflow/research.md)). |
-| **`sdk`** | Runs **`gemara_binary`** with **`sdk_args`** after `oras login`. Use once **go-gemara** ships a stable push CLI so **one codebase** owns Pack + `oras.Copy`. Exports **`GEMARA_REGISTRY`**, **`GEMARA_REPOSITORY`**, **`GEMARA_TAG`** for the CLI. |
+See [`examples/README.md`](examples/README.md) for a short backlog and workflow copy-paste points.
 
-For **direct multi-file `oras push`** from repo trees (pre-Pack), see [complytime-policies OCI spec](https://github.com/complytime/complytime-policies/blob/main/docs/oci-publish-spec.md) and [org-infra#172](https://github.com/complytime/org-infra/issues/172).
+### Behaviour (technical)
 
-## Inputs (summary)
+**Assemble** → **pack** into an **in-memory** OCI store → **`oras.Copy`** to the registry. Resolve by manifest **digest** first; if that fails, **tag** the root as `gemara-publish/__root__` and **copy** from that ref. No ORAS **CLI** for manifest/media types—those stay in **`bundle.Pack`**.
 
-| Input | Description |
-|-------|-------------|
-| `publish_mode` | `layout-copy` or `sdk` |
-| `registry` | Registry host (default `ghcr.io`) |
-| `repository` | Path without host (e.g. `org/name`) |
-| `tag` | Tag to push |
-| `oci_layout_path` / `pack_path` | OCI layout dir (`layout-copy` only) |
-| `layout_ref` | Layout reference for `oras cp PATH:REF` (`layout-copy` only, **required** in that mode) |
-| `gemara_binary` | Path or name on PATH (`sdk` only, **required** in that mode) |
-| `sdk_args` | Arguments for the gemara CLI (`sdk` only) |
-| `username` | Registry user; defaults to `GITHUB_ACTOR` when using `password` |
-| `password` | Token; omit only with `plain_http: true` |
-| `oras_version` | ORAS version for `layout-copy` and digest resolution (default `1.2.0`) |
-| `plain_http` | `true` for HTTP registries (e.g. local CI) |
+## End-to-end verification
 
-## Outputs
+CI runs **`e2e-publish-ghcr`** in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on push and same-repo pull requests. Optional manual: [`.github/workflows/e2e-ghcr.yml`](.github/workflows/e2e-ghcr.yml) (`workflow_dispatch`).
 
-| Output | Description |
-|--------|-------------|
-| `digest` | Manifest digest (`sha256:...`) |
+## Two-phase publish (layout on disk, transport only)
 
-## Usage — `layout-copy` (GHCR)
+If you only need **`oras cp --from-oci-layout`** from an existing on-disk layout, you can use a **separate** ORAS-based workflow or an **older ref** of this repository from before the bundle migration (check git history). The **default** in this branch is the **single-step** bundle path: root YAML → in-memory pack → `oras.Copy`.
+
+## Pinning, releases, and reproducibility
+
+- **Pin the action** with a **semver tag** or **commit SHA** on `uses:` (not `@main` in production). See [`examples/workflow-publish-with-pinned-action.yml`](examples/workflow-publish-with-pinned-action.yml).
+- **SDK** until [PR #62](https://github.com/gemaraproj/go-gemara/pull/62) is released on `gemaraproj/go-gemara`: the **`require` / `replace`** in [`tools/publish/go.mod`](tools/publish/go.mod) is the **source of truth** for the fork pin.
+
+## SDK version pin
+
+If `go.mod` carries a **`replace`** to a fork pseudo-version, use that only until an official `gemaraproj/go-gemara` tag contains `bundle` APIs. Then remove `replace`, update `require`, and run `go mod tidy` in `tools/publish/`.
+
+## Usage
 
 ```yaml
 permissions:
@@ -52,43 +44,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: OWNER/gemara-publish-oci@v0.1.0
+
+      - uses: sonupreetam/gemara-publish-oci@v1
         id: publish
         with:
-          publish_mode: layout-copy
           registry: ghcr.io
-          repository: ${{ github.repository }}
-          tag: sha-${{ github.sha }}
-          oci_layout_path: ./layout
-          layout_ref: v1
+          repository: ${{ github.repository_owner }}/bundles/my-policy
+          tag: v1.0.0
+          file: policies/policy.yaml
+          bundle_version: "1"
+          gemara_version: v1.0.0
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record digest
+        run: echo "Published ${{ steps.publish.outputs.digest }}"
 ```
 
-## Usage — `sdk` (when `gemara` CLI exists)
+Use `uses: ./` when testing from a checkout of this repository.
 
-```yaml
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-      - run: go install github.com/gemaraproj/go-gemara/cmd/gemara@VERSION   # example — TBD
-      - uses: OWNER/gemara-publish-oci@v0.1.0
-        id: publish
-        with:
-          publish_mode: sdk
-          gemara_binary: gemara
-          sdk_args: publish oci
-          registry: ghcr.io
-          repository: ${{ github.repository }}
-          tag: sha-${{ github.sha }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-```
+## Outputs
 
-Subcommand and flags for **`sdk_args`** must match **go-gemara**; the snippet is illustrative until a release documents them.
+| Name     | Description |
+|----------|-------------|
+| `digest` | Root manifest digest after push (e.g. `sha256:…`). |
 
-## Pinning
+## Inputs
 
-Use **`@v0.1.0`** or a **full commit SHA**, not `@main`. In the examples above, replace **`OWNER`** with the GitHub org or user that hosts this repository (for example `gemaraproj` after transfer).
+| Name                | Required | Description |
+|---------------------|----------|-------------|
+| `registry`          | yes      | Host (e.g. `ghcr.io`). |
+| `repository`        | yes      | Path without host. |
+| `tag`               | yes      | Remote tag. |
+| `file`              | yes      | Root Gemara YAML (relative to `working_directory`). |
+| `username` / `password` | yes  | Registry auth. |
+| `validate`          | no       | `gemara.Load` before assemble (default `true`). |
+| `bundle_version`    | no       | `bundle-version` in manifest. |
+| `gemara_version`    | no       | `gemara-version` in manifest. |
+| `working_directory` | no       | Base for `file` (default `.`). |
 
 ## License
 
-See [LICENSE](LICENSE).
+Apache-2.0 (see [`LICENSE`](LICENSE), aligned with go-gemara).

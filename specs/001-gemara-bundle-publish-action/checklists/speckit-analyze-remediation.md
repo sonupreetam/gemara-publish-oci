@@ -8,7 +8,7 @@
 
 | ID | Category | Severity | Summary | Remediation | Done |
 |----|----------|----------|---------|-------------|------|
-| **ENV** | Tooling | MEDIUM | Speckit `check-prerequisites.sh` expects `oci-artifact/specs/001-*`; this feature lives under `gemara-bundle-publish-action/specs/…`. | Documented in [plan.md](../plan.md) **Speckit / monorepo paths** note; symlink or Speckit config remains optional. | [x] |
+| **ENV** | Tooling | MEDIUM | Speckit / nested-monorepo paths are obsolete. | [plan.md](../plan.md) **Layout** at repo root. | [x] |
 | **I1** | Inconsistency | MEDIUM | Stale plan note about `master` / `setup-plan` failure. | Replaced with stable monorepo + branch guidance in `plan.md`. | [x] |
 | **I2** | Inconsistency | LOW | Plan said “Phase 2 — Tasks (not created here)” while `tasks.md` exists. | Plan now links **Phase 2 — Tasks** → `tasks.md`; doc tree lists `tasks.md`. | [x] |
 | **U3** | Coverage / wording | MEDIUM | SC-001 read like “every CI push proves GHCR pullable artifact.” | **SC-001** rewritten in `spec.md`: E2E / documented run vs default PR CI scope. | [x] |

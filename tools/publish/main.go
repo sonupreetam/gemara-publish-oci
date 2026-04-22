@@ -9,7 +9,7 @@
 // memory + oras.Copy + registry auth and CLI flags so a composite GitHub Action
 // can call one binary. The entrypoint lives in this action repo because
 // https://github.com/gemaraproj/go-gemara/issues/63 calls for a separate repo for
-// the Action; a first-class cmd/ in go-gemara can replace or wrap this later.
+// the Action (this repository). A first-class cmd/ in go-gemara can replace or wrap this later.
 package main
 
 import (

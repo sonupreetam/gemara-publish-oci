@@ -12,6 +12,7 @@ Replace angle-bracket placeholders when publishing:
 
 ## Unreleased
 
+- **Layout**: The bundle composite action, `tools/publish`, and docs live at the **repository root**; Go module is **`github.com/sonupreetam/gemara-publish-oci/tools/publish`**. CI is **one** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) at the root.
 - CI: **`e2e-publish-ghcr`** job in `.github/workflows/ci.yml` — live GHCR publish + `outputs.digest` verification on push and same-repo PRs (SC-004); fork PRs skip this job.
-- Documented governance (#63), mapping-reference behavior, Speckit plan/tasks, and composite contract alignment.
+- Documented mapping-reference behavior, Speckit plan/tasks, and composite contract alignment.
 - Current `replace` line (pre–upstream tag for bundle APIs): see **`tools/publish/go.mod`** (not duplicated here to avoid noisy secret-detection scans).
