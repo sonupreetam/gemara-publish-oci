@@ -3,3 +3,7 @@
 # Local editor / Spec Kit tooling (not part of the published repository)
 .cursor/
 .specify/
+
+# Local monorepo checkouts; do not re-record as submodules (see broken 160000 without .gitmodules)
+go-gemara/
+gemara-content-service/
