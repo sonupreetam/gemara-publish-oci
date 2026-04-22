@@ -8,8 +8,10 @@ This folder is **not** wired into the root [`action.yml`](../action.yml). It col
 |----------|------------|----------------------|
 | [`workflow-publish-with-pinned-action.yml`](workflow-publish-with-pinned-action.yml) | Caller workflow: checkout + **semver-pinned** `uses: …/gemara-bundle-publish-action@v…` | Copy into a **content repo** under `.github/workflows/`; replace `file` / `repository` / triggers. |
 | [`Dockerfile.publish.sketch`](Dockerfile.publish.sketch) | Multi-stage **build** of [`tools/publish`](../tools/publish) → static binary in distroless | Add a **`.github/workflows`** job here (or in org) to `docker build` + push to **GHCR**; pin consumers by **digest**. |
-| [`docker-compose.publish.sketch.yml`](docker-compose.publish.sketch.yml) | **Local smoke**: build image, mount repo read-only, run publish with flags | Run before opening a PR; adjust `file=` to a real root YAML in your checkout. |
+| [`docker-compose.publish.sketch.yml`](docker-compose.publish.sketch.yml) | **Local smoke**: build image, mount repo read-only, run publish with flags | Export **`GEMARA_REGISTRY_PASSWORD`** (registry token) in your shell before `docker compose run`; never commit token values. Adjust `file=` to a real root YAML. |
 | [`workflow-publish-with-docker-image.yml`](workflow-publish-with-docker-image.yml) | Optional CI path: **no `go run`** on the runner—only `docker run` a pinned image | After GHCR image exists, use this in repos that prefer container-only jobs. |
+| [`.github/workflows/e2e-ghcr.yml`](../.github/workflows/e2e-ghcr.yml) | **Maintainer** `workflow_dispatch`: publish [`tools/publish/testdata/minimal-catalog.yaml`](../tools/publish/testdata/minimal-catalog.yaml) to GHCR and assert `digest` output | Run from the Actions tab on this repo (needs `packages: write`). |
+| **Two-phase (layout → registry)** | Not an example file in this folder—use a **transport-only** action (e.g. [gemara-publish-oci](https://github.com/sonupreetam/gemara-publish-oci) `layout-copy`) after producing an **OCI image layout** with SDK or other tooling | Keeps **pack** out of the transport step; see root [README.md](../README.md) “Two-phase publish”. |
 
 ## Principles
 

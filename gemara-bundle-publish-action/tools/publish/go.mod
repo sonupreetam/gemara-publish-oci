@@ -1,8 +1,9 @@
 module github.com/gemaraproj/gemara-bundle-publish-action/tools/publish
 
-// PR #62 (bundle Pack/Assemble + oras-go) is not merged on main yet; pin this
-// pseudo-version from github.com/jpower432/go-gemara branch feat/add-bundle-types.
-// After merge, replace with a tagged github.com/gemaraproj/go-gemara release.
+// PR #62 (bundle Pack/Assemble + oras-go): gemaraproj/go-gemara@v0.3.0 and @main
+// (checked 2026-04-21) do not ship github.com/gemaraproj/go-gemara/bundle yet.
+// Pin this pseudo-version from github.com/jpower432/go-gemara until a gemaraproj
+// tag contains the bundle package (tasks.md T020).
 go 1.25.0
 
 toolchain go1.25.8

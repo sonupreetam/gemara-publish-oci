@@ -24,3 +24,61 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build tool image (examples/Dockerfile.publish.sketch)
         run: docker build -f examples/Dockerfile.publish.sketch -t gemara-bundle-publish:ci .
+
+  publish-invalid-root:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+      - name: Expect validation failure before registry push
+        working-directory: tools/publish
+        env:
+          # Non-credential: publish exits during validation before any registry traffic.
+          GEMARA_REGISTRY_PASSWORD: "x"
+        run: |
+          set +e
+          go run . \
+            -registry=ghcr.io \
+            -repository=example/fake \
+            -tag=t \
+            -file="$(pwd)/testdata/invalid-root.yaml" \
+            -username=nobody
+          code=$?
+          set -e
+          if [[ "$code" -eq 0 ]]; then
+            echo "::error::expected non-zero exit for invalid root YAML"
+            exit 1
+          fi
+          echo "ok: publish tool exited $code as expected"
+
+  # SC-004 / T014: real push + digest on GHCR (skipped on fork PRs — no packages:write).
+  e2e-publish-ghcr:
+    name: E2E publish to GHCR
+    runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish minimal bundle
+        id: publish
+        uses: ./
+        with:
+          registry: ghcr.io
+          repository: ${{ github.repository }}
+          tag: bundle-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          file: tools/publish/testdata/minimal-catalog.yaml
+          bundle_version: "1"
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify digest output
+        run: |
+          d="${{ steps.publish.outputs.digest }}"
+          [[ -n "$d" ]] || { echo "::error::empty digest"; exit 1; }
+          [[ "$d" == sha256:* ]] || { echo "::error::digest not sha256 form: $d"; exit 1; }
+          echo "digest=$d"

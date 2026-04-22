@@ -110,6 +110,32 @@ func main() {
 		fmt.Fprintf(os.Stderr, "oras copy (from %s): %v\n", srcRef, err)
 		os.Exit(1)
 	}
+
+	manifestDesc, err := repo.Resolve(ctx, *tag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resolve remote tag %q after copy: %v\n", *tag, err)
+		os.Exit(1)
+	}
+	digestStr := manifestDesc.Digest.String()
+	if err := writeGitHubOutput("digest", digestStr); err != nil {
+		fmt.Fprintf(os.Stderr, "write GITHUB_OUTPUT: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("digest=%s\n", digestStr)
+}
+
+func writeGitHubOutput(key, value string) error {
+	path := os.Getenv("GITHUB_OUTPUT")
+	if path == "" {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "%s=%s\n", key, value)
+	return err
 }
 
 func validateRoot(ctx context.Context, path string, data []byte) error {

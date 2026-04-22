@@ -36,11 +36,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish bundle
+        id: publish
         env:
           GEMARA_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           docker pull "${IMAGE}"
+          LOG="${RUNNER_TEMP}/gemara-publish.log"
           docker run --rm \
             -e GEMARA_REGISTRY_PASSWORD \
             -v "${GITHUB_WORKSPACE}:/workspace:ro" \
@@ -50,4 +52,9 @@ jobs:
             -repository=${{ github.repository_owner }}/bundles/my-policy \
             -tag=${{ github.ref_name }} \
             -file=/workspace/policies/policy.yaml \
-            -username=${{ github.actor }}
+            -username=${{ github.actor }} 2>&1 | tee "${LOG}"
+          grep -q '^digest=' "${LOG}"
+          grep '^digest=' "${LOG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Bundle digest
+        run: echo "${{ steps.publish.outputs.digest }}"

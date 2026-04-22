@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-gemara-bundle-publish-action`  
 **Created**: 2026-04-21  
-**Status**: Draft  
+**Status**: Ready  
 **Input**: Standardize automation for publishing **Gemara OCI bundles** from
 repositories into OCI registries (for example GHCR), aligned with upstream goals
 in [go-gemara#60](https://github.com/gemaraproj/go-gemara/issues/60) (OCI
@@ -12,6 +12,18 @@ packaging standard), [go-gemara#63](https://github.com/gemaraproj/go-gemara/issu
 packaging). The **canonical definition** of bundle layout, manifest shape, and
 media types **belongs in the Go SDK**; this specification describes what the
 **GitHub Action** must deliver to users and how it **depends on** that contract.
+
+**Traceability to [go-gemara#63](https://github.com/gemaraproj/go-gemara/issues/63)**:
+This Speckit feature implements the issue’s **“Create a new repo that has a
+GitHub Action … leveraging the SDK”** intent: **FR-002** and **User Story 1**
+require bundle create-and-push via **Gemara Go SDK bundle APIs** (assemble,
+pack, registry copy semantics)—not a reimplementation of pack or media types in
+the Action. The **repository** that hosts this Action is the **dedicated repo**
+in that checklist item; **final GitHub org/name** is tracked under **Open
+Questions** until transfer. **“Identify action maintainers”** and **“Publish to
+Marketplace”** remain **#63 program tasks**; they are **referenced** in this spec
+(Assumptions, Non-Goals) but are **not** specified as workflow-level requirements
+here.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -121,10 +133,15 @@ direct publish, within the SDK contract.
   not show a partial upload; documentation states no guarantee of atomic
   publish unless the registry/SDK combination provides it.
 - **Very large** dependency graphs: publish may time out; document runner and
-  timeout guidance.
+  **job-level** timeout guidance (callers SHOULD set `timeout-minutes` on the
+  publish job—see README).
 - **SDK pre-release**: during development, the action may depend on a
   non-released SDK revision; releases **must** document the migration to
   `require` on official tags.
+- **Plain HTTP registry URL**: not supported as a first-class v1 composite
+  input (see Assumptions); failures from misconfigured **http://** hosts are
+  expected unless the user supplies an **https://** endpoint or an out-of-band
+  transport path.
 
 ## Requirements *(mandatory)*
 
@@ -180,9 +197,18 @@ direct publish, within the SDK contract.
 
 ### Measurable Outcomes
 
-- **SC-001**: A sample public workflow documented in this repository completes
-  on `ubuntu-latest` and leaves a **pullable** artifact at the configured tag on
-  GHCR (or equivalent test registry).
+- **SC-001**: A sample workflow documented in this repository (for example
+  [`.github/workflows/e2e-ghcr.yml`](../../.github/workflows/e2e-ghcr.yml),
+  the **`e2e-publish-ghcr` job** in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml),
+  or the caller examples under `examples/`) **can** complete on `ubuntu-latest` and
+  leave a **pullable** artifact at the configured tag on GHCR (or an equivalent
+  test registry). **Evidence** for release readiness is a **successful maintainer
+  run** of the E2E workflow, a **green `e2e-publish-ghcr` CI job** on the default
+  branch or a same-repository pull request, or another **documented** equivalent
+  run—not necessarily every push when jobs are skipped (for example **fork pull
+  requests**, where the E2E job is skipped because `packages:write` is unavailable).
+  **PR CI** still validates build, negative paths, Docker sketch, and (when not a
+  fork PR) live GHCR publish and digest output.
 - **SC-002**: With validation enabled, an intentionally **invalid** root file
   causes the job to fail in under 3 minutes without a successful push.
 - **SC-003**: A maintainer can correlate a successful run to **action version**
@@ -191,11 +217,20 @@ direct publish, within the SDK contract.
   run is recorded against the SDK change that introduces bundle packaging
   ([PR #62](https://github.com/gemaraproj/go-gemara/pull/62) or its merged
   equivalent), including **resolve by tag** (and digest when FR-008 is met).
+  **Recording**: append the workflow run URL (and optional sample digest) to
+  [plan.md](./plan.md) under **E2E evidence** after the first successful
+  **`e2e-publish-ghcr`** or **`e2e-ghcr`** run; the CI job is the default path
+  once enabled on the default branch.
 
 ## Assumptions
 
 - Consumers use **OCI Distribution v2**-compatible registries (GHCR, Quay,
   etc.) with token or password auth supported by the SDK’s remote client.
+- **v1 composite action is HTTPS-only**: **plain HTTP** registry endpoints are
+  **out of scope** for the first-class action inputs; labs needing HTTP MUST use
+  a **TLS-terminating reverse proxy**, a **documented two-phase** layout +
+  transport path, or a **fork/wrapper**—not a required built-in `plain_http`
+  input in this spec’s v1.
 - **Maintainer roster** and **Marketplace** publication will follow
   [go-gemara#63](https://github.com/gemaraproj/go-gemara/issues/63) and may live
   under a **gemaraproj** org repository name TBD.
@@ -210,8 +245,6 @@ direct publish, within the SDK contract.
 - **Single action vs two actions**: Whether **transport-only** and
   **pack-and-publish** remain separate repositories or converge after the SDK
   is released.
-- **Digest resolution**: Exact method when the registry does not immediately
-  resolve digest after copy (retry vs parse tool output).
 - **Registry compatibility**: Any registries that reject multi-layer or
   non-image manifests must be documented as unsupported until addressed
   upstream.
@@ -225,3 +258,24 @@ direct publish, within the SDK contract.
   must track SDK releases for breaking changes.
 - **Jenn / maintainer sequencing**: Prefer **E2E validation against PR #62**
   before merging SDK bundle support, so the action and SDK stay aligned.
+- Q: What digest resolution method does the action standardize on? → A:
+  **Post-copy remote Resolve by pushed tag** on the same registry client; emit
+  **algorithm:hex** (e.g. `sha256:…`). Eventual-consistency retries are
+  **out of scope for v1** unless planning documents a concrete registry class
+  that requires them.
+- Q: Should v1 of the composite action officially support **plain HTTP**
+  registries? → A: **No (Option A)**—**HTTPS-only** for the composite action v1;
+  document workarounds (TLS front, two-phase transport, or fork); no required
+  `plain_http` (or equivalent) input in this spec’s v1.
+- Q: Does this Speckit feature follow [go-gemara#63](https://github.com/gemaraproj/go-gemara/issues/63)
+  (“Create a new repo that has a GitHub Action … **leveraging the SDK**”)? → A:
+  **Yes** for **Action + SDK**: the Action MUST use SDK bundle APIs (**FR-002**).
+  **Yes** for **dedicated repo** as the vehicle for that Action; **org/repo
+  naming** is **Open Questions** until transfer. **Maintainers** and
+  **Marketplace** are **#63 checklist items** deferred to governance (Assumptions
+  / Non-Goals), not deep workflow requirements in this spec.
+- **FR-008 vs implementation**: The normative text remains **SHOULD** for
+  historical spec wording; the shipped composite action **does** expose
+  `outputs.digest` via post-copy remote Resolve—treat as **implementation meets
+  or exceeds** the SHOULD unless a future spec revision elevates the bar to
+  **MUST**.

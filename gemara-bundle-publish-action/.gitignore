@@ -1,0 +1,13 @@
+# Go (tools/publish)
+*.exe
+*.test
+*.out
+vendor/
+
+# Local env / editor
+.env
+.env.*
+.DS_Store
+.idea/
+*.swp
+*.log

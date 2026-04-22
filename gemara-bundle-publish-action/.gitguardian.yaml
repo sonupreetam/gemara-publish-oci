@@ -1,0 +1,9 @@
+# GitGuardian: reduce false positives from Go module checksums (not secrets).
+# See https://docs.gitguardian.com/secrets-detection/customize-detection/exclusion-rules
+version: 2
+
+paths-ignore:
+  - "**/go.sum"
+  # Compose sketch: only passes host env into the container; "Generic Password" false
+  # positives on *_PASSWORD keys (GitGuardian incident on this path).
+  - "**/examples/docker-compose.publish.sketch.yml"

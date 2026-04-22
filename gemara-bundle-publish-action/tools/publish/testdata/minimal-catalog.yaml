@@ -1,0 +1,6 @@
+metadata:
+  id: gemara-bundle-publish-ci
+  type: ControlCatalog
+title: CI minimal catalog
+groups: []
+controls: []
