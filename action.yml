@@ -1,0 +1,188 @@
+# Composite action — CI glue only. Pack / manifest / media types: go-gemara (docs/ARCHITECTURE.md).
+name: Publish Gemara OCI bundle
+description: Publish a Gemara OCI artifact (layout-copy via ORAS, or invoke gemara CLI)
+
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  publish_mode:
+    description: layout-copy = oras cp from OCI layout; sdk = run gemara_binary + sdk_args (once go-gemara ships a push CLI)
+    required: false
+    default: layout-copy
+  registry:
+    description: Registry host (e.g. ghcr.io)
+    required: false
+    default: ghcr.io
+  repository:
+    description: Repository path without registry (e.g. org/gemara/my-bundle)
+    required: true
+  tag:
+    description: Tag to push
+    required: true
+  oci_layout_path:
+    description: OCI image layout directory (layout-copy)
+    required: false
+    default: ""
+  pack_path:
+    description: Fallback path if oci_layout_path is empty
+    required: false
+    default: "."
+  layout_ref:
+    description: oras cp PATH:REF (layout-copy only)
+    required: false
+    default: ""
+  gemara_binary:
+    description: gemara CLI path or name (sdk only)
+    required: false
+    default: ""
+  sdk_args:
+    description: Arguments for gemara_binary (sdk only)
+    required: false
+    default: ""
+  username:
+    description: Registry user
+    required: false
+    default: ""
+  password:
+    description: Registry token (omit with plain_http for HTTP registries only)
+    required: false
+    default: ""
+  oras_version:
+    description: ORAS CLI version (no v prefix)
+    required: false
+    default: "1.2.0"
+  plain_http:
+    description: Use HTTP to registry (e.g. localhost CI)
+    required: false
+    default: "false"
+
+outputs:
+  digest:
+    description: Manifest digest (sha256:...)
+    value: ${{ steps.publish.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Publish
+      id: publish
+      shell: bash
+      env:
+        PUBLISH_MODE: ${{ inputs.publish_mode }}
+        REGISTRY: ${{ inputs.registry }}
+        REPOSITORY: ${{ inputs.repository }}
+        TAG: ${{ inputs.tag }}
+        OCI_LAYOUT_PATH: ${{ inputs.oci_layout_path != '' && inputs.oci_layout_path || inputs.pack_path }}
+        LAYOUT_REF: ${{ inputs.layout_ref }}
+        GEMARA_BINARY: ${{ inputs.gemara_binary }}
+        SDK_ARGS: ${{ inputs.sdk_args }}
+        USERNAME: ${{ inputs.username }}
+        PASSWORD: ${{ inputs.password }}
+        ORAS_VERSION: ${{ inputs.oras_version }}
+        PLAIN_HTTP: ${{ inputs.plain_http }}
+      run: |
+        set -euo pipefail
+        : "${GITHUB_OUTPUT:?}"
+
+        ORAS_VERSION="${ORAS_VERSION:-1.2.0}"
+        install_dir="${RUNNER_TEMP:-/tmp}/oras-install-${ORAS_VERSION}"
+        mkdir -p "$install_dir"
+
+        arch=$(uname -m)
+        case "$arch" in
+        x86_64) arch=amd64 ;;
+        aarch64) arch=arm64 ;;
+        arm64) arch=arm64 ;;
+        esac
+
+        kernel=$(uname -s | tr '[:upper:]' '[:lower:]')
+        case "$kernel" in
+        linux) oras_os=linux ;;
+        darwin) oras_os=darwin ;;
+        *) echo "::error::Unsupported OS: ${kernel}"; exit 1 ;;
+        esac
+
+        curl -fsSL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_${oras_os}_${arch}.tar.gz" \
+          | tar -xz -C "$install_dir" oras
+        chmod +x "${install_dir}/oras"
+        export PATH="${install_dir}:${PATH}"
+        oras version
+
+        REGISTRY="${REGISTRY:?}"
+        REPOSITORY="${REPOSITORY:?}"
+        TAG="${TAG:?}"
+        DEST="${REGISTRY}/${REPOSITORY}:${TAG}"
+
+        PLAIN="${PLAIN_HTTP:-false}"
+        TO_FLAGS=()
+        RESOLVE_FLAGS=()
+        if [[ "$PLAIN" == "true" ]]; then
+          TO_FLAGS=(--to-plain-http)
+          RESOLVE_FLAGS=(--plain-http)
+        fi
+
+        registry_login() {
+          if [[ "$PLAIN" == "true" ]]; then return 0; fi
+          if [[ -n "${PASSWORD:-}" ]]; then
+            USER_L="${USERNAME:-}"
+            [[ -n "$USER_L" ]] || USER_L="${GITHUB_ACTOR:-oauth2}"
+            echo "$PASSWORD" | oras login "$REGISTRY" -u "$USER_L" --password-stdin
+          else
+            echo "::error::password required for HTTPS (or plain_http: true)"
+            exit 1
+          fi
+        }
+
+        write_digest() {
+          local CP_OUT="$1"
+          local DIGEST
+          DIGEST=$(oras resolve "$DEST" "${RESOLVE_FLAGS[@]}" 2>/dev/null | tr -d '\r\n' || true)
+          [[ -n "$DIGEST" ]] || DIGEST=$(printf '%s\n' "$CP_OUT" | sed -n 's/^[[:space:]]*Digest:[[:space:]]*//p' | tail -1 | tr -d '\r\n')
+          if [[ -z "$DIGEST" ]]; then
+            echo "::error::Could not resolve digest"
+            exit 1
+          fi
+          echo "digest=$DIGEST" >>"$GITHUB_OUTPUT"
+          echo "Published ${DEST} (${DIGEST})"
+        }
+
+        case "${PUBLISH_MODE:-layout-copy}" in
+        layout-copy)
+          OCI_LAYOUT_PATH="${OCI_LAYOUT_PATH:-.}"
+          if [[ ! -f "${OCI_LAYOUT_PATH}/index.json" ]]; then
+            echo "::error::No OCI layout at ${OCI_LAYOUT_PATH} (need index.json)"
+            exit 1
+          fi
+          LAYOUT_REF="${LAYOUT_REF:?layout_ref required for layout-copy}"
+          SRC="${OCI_LAYOUT_PATH}:${LAYOUT_REF}"
+          registry_login
+          set +e
+          CP_OUT=$(oras cp --from-oci-layout "$SRC" "$DEST" "${TO_FLAGS[@]}" 2>&1)
+          CP_RC=$?
+          set -e
+          printf '%s\n' "$CP_OUT"
+          [[ "$CP_RC" -eq 0 ]] || { echo "::error::oras cp failed ($CP_RC)"; exit "$CP_RC"; }
+          write_digest "$CP_OUT"
+          ;;
+        sdk)
+          [[ -n "${GEMARA_BINARY:-}" ]] || { echo "::error::gemara_binary required for sdk mode"; exit 1; }
+          GB="$GEMARA_BINARY"
+          [[ -x "$GB" ]] || command -v "$GB" &>/dev/null || { echo "::error::gemara_binary not found: $GB"; exit 1; }
+          [[ -x "$GB" ]] || GB=$(command -v "$GB")
+          export GEMARA_REGISTRY="$REGISTRY" GEMARA_REPOSITORY="$REPOSITORY" GEMARA_TAG="$TAG"
+          registry_login
+          set +e
+          CP_OUT=$("$GB" ${SDK_ARGS:-} 2>&1)
+          CP_RC=$?
+          set -e
+          printf '%s\n' "$CP_OUT"
+          [[ "$CP_RC" -eq 0 ]] || { echo "::error::gemara failed ($CP_RC)"; exit "$CP_RC"; }
+          write_digest "$CP_OUT"
+          ;;
+        *)
+          echo "::error::Unknown publish_mode: ${PUBLISH_MODE}"
+          exit 1
+          ;;
+        esac

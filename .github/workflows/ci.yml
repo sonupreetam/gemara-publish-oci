@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: YAML syntax (action.yml)
+        run: ruby -ryaml -e "YAML.load_file('action.yml'); puts 'action.yml OK'"
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Start local registry
+        run: |
+          docker run -d -p 5000:5000 --name ci-registry registry:2
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5000/v2/ >/dev/null 2>&1; then
+              echo "registry ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::registry did not become ready"
+          exit 1
+
+      - name: Publish test fixture via action
+        id: publish
+        uses: ./
+        with:
+          publish_mode: layout-copy
+          registry: localhost:5000
+          repository: test/gemara
+          tag: ci-${{ github.run_id }}
+          oci_layout_path: testdata/minimal-layout
+          layout_ref: v1
+          plain_http: true
+
+      # sdk mode is not exercised here: a smoke test needs a real push to DEST so
+      # digest resolution succeeds; sdk_args is word-split in action.yml, so a
+      # bash -c one-liner is fragile. See specs/001-gemara-publish-oci-action/plan.md.
+
+      - name: Verify digest output
+        run: |
+          test -n "${{ steps.publish.outputs.digest }}"
+          echo "digest=${{ steps.publish.outputs.digest }}"
+          echo "${{ steps.publish.outputs.digest }}" | grep -qE '^sha256:[a-f0-9]{64}$'
