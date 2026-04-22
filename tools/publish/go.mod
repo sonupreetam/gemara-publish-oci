@@ -20,4 +20,4 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 )
 
-replace github.com/gemaraproj/go-gemara => github.com/jpower432/go-gemara v0.0.0-20260418000148-0d0e23202fa1
+replace github.com/gemaraproj/go-gemara => github.com/jpower432/go-gemara v0.0.0-20260421170629-16131cd8eb65
