@@ -3,7 +3,7 @@
 **Source of truth**: [`action.yml`](../../action.yml) in this repository.  
 **Consumers**: GitHub Actions workflows (`jobs.*.steps[].uses`).
 
-**Composite structure**: The action runs two steps: (1) `actions/setup-go@v5` with `go-version: 1.25.x`; (2) a `bash` step with **`id: publish`** that runs `go run "${{ github.action_path }}/tools/publish"` with CLI flags mapped from inputs. Only step **publish** produces `GITHUB_OUTPUT` keys consumed by top-level `outputs.digest`.
+**Composite structure**: The action runs two steps: (1) `actions/setup-go@v5` with `go-version: 1.25.x` and `cache-dependency-path: ${{ github.action_path }}/tools/publish/go.sum`; (2) a `bash` step with **`id: publish`** that runs `go run -C "${{ github.action_path }}/tools/publish" .` with CLI flags mapped from inputs. Only step **publish** produces `GITHUB_OUTPUT` keys consumed by top-level `outputs.digest`.
 
 ## Inputs (required unless noted)
 
