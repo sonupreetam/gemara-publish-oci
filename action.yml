@@ -29,8 +29,18 @@ inputs:
     description: Registry username (for GHCR often github.actor)
     required: true
   password:
-    description: Registry password or token (for GHCR often secrets.GITHUB_TOKEN)
-    required: true
+    description: >-
+      Registry password or token (for GHCR often secrets.GITHUB_TOKEN). May be
+      empty when plain_http is true and the registry does not use credentials
+      (e.g. open local Zot in CI).
+    required: false
+    default: ""
+  plain_http:
+    description: >-
+      If true, use HTTP (insecure) to the registry and allow an empty password
+      (oras PlainHTTP; for local Zot or registry:2 on localhost).
+    required: false
+    default: "false"
   validate:
     description: If true (default), validate the root document with gemara.Load before assemble
     required: false
@@ -67,6 +77,7 @@ runs:
       shell: bash
       env:
         GEMARA_REGISTRY_PASSWORD: ${{ inputs.password }}
+        GEMARA_REGISTRY_PLAIN_HTTP: ${{ inputs.plain_http }}
       run: |
         set -euo pipefail
         cd "${GITHUB_WORKSPACE}/${{ inputs.working_directory }}"

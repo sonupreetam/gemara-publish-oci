@@ -41,9 +41,18 @@ func main() {
 	flag.Parse()
 
 	password := os.Getenv("GEMARA_REGISTRY_PASSWORD")
-	if *registry == "" || *repository == "" || *tag == "" || *file == "" || *username == "" || password == "" {
+	plainHTTPEnv := os.Getenv("GEMARA_REGISTRY_PLAIN_HTTP")
+	plainHTTP := plainHTTPEnv == "1" || plainHTTPEnv == "true"
+	if *registry == "" || *repository == "" || *tag == "" || *file == "" || *username == "" {
 		flag.Usage()
-		fmt.Fprintln(os.Stderr, "GEMARA_REGISTRY_PASSWORD must be set.")
+		fmt.Fprintln(os.Stderr, "registry, repository, tag, file, and username are required.")
+		os.Exit(2)
+	}
+	// Open registries (e.g. local Zot in CI) may not require credentials; allow empty
+	// when explicitly using plain HTTP. Otherwise require a password (GHCR, Quay, etc.).
+	if !plainHTTP && password == "" {
+		flag.Usage()
+		fmt.Fprintln(os.Stderr, "GEMARA_REGISTRY_PASSWORD must be set (or set GEMARA_REGISTRY_PLAIN_HTTP for open HTTP registries).")
 		os.Exit(2)
 	}
 
@@ -82,6 +91,9 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "remote repo: %v\n", err)
 		os.Exit(1)
+	}
+	if plainHTTP {
+		repo.PlainHTTP = true
 	}
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
