@@ -59,3 +59,63 @@ jobs:
           test -n "${{ steps.publish.outputs.digest }}"
           echo "digest=${{ steps.publish.outputs.digest }}"
           echo "${{ steps.publish.outputs.digest }}" | grep -qE '^sha256:[a-f0-9]{64}$'
+
+  e2e-policy-oci-ghcr-sign-verify:
+    name: E2E policy OCI (GHCR) + keyless sign + verify
+    needs: validate
+    runs-on: ubuntu-latest
+    if: >
+      !(
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name != github.repository
+      )
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Registry path (GHCR is lowercase)
+        id: reg
+        run: |
+          echo "repository_lc=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Publish policy OCI bundle to GHCR
+        id: policy
+        uses: ./
+        with:
+          publish_mode: layout-copy
+          registry: ghcr.io
+          repository: ${{ steps.reg.outputs.repository_lc }}
+          tag: policy-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          oci_layout_path: testdata/minimal-layout
+          layout_ref: v1
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@4959ce089c160fddf62f7b42464195ba1a56d382 # v3.6.0
+        with:
+          cosign-release: v2.4.0
+
+      - name: Keyless sign published digest
+        env:
+          REF: ghcr.io/${{ steps.reg.outputs.repository_lc }}@${{ steps.policy.outputs.digest }}
+        run: |
+          set -euo pipefail
+          echo "Signing: ${REF}"
+          cosign sign -y "$REF"
+
+      - name: Verify signature (same workflow identity)
+        env:
+          REF: ghcr.io/${{ steps.reg.outputs.repository_lc }}@${{ steps.policy.outputs.digest }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Fulcio: GitHub Actions OIDC subject for this repository’s workflows
+          ident="^https://github.com/${GITHUB_REPO}/.github/workflows/"
+          cosign verify "$REF" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            --certificate-identity-regexp "$ident"
+          echo "cosign verify OK: ${REF}"
