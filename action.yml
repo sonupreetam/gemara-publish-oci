@@ -337,6 +337,13 @@ runs:
             --certificate-identity-regexp "${ALLOWED_IDENTITY_REGEX}" >/dev/null
         }
 
+        source_user="${USERNAME:-${GITHUB_ACTOR:-oauth2}}"
+        if [[ "${SIGN_SOURCE}" == "true" || "${VERIFY_SOURCE}" == "true" ]]; then
+          if [[ -n "${PASSWORD:-}" ]]; then
+            echo "${PASSWORD}" | docker login "${REGISTRY}" -u "${source_user}" --password-stdin
+          fi
+        fi
+
         if [[ "${SIGN_SOURCE}" == "true" ]]; then
           echo "Signing source digest: ${SOURCE_REF}"
           cosign sign -y "${SOURCE_REF}"
@@ -364,9 +371,12 @@ runs:
         DEST_TAG="${QUAY_TAG:-${TAG}}"
         DEST_REF_TAGGED="${QUAY_REGISTRY}/${QUAY_IMAGE}:${DEST_TAG}"
 
-        src_user="${USERNAME:-${GITHUB_ACTOR:-oauth2}}"
+        src_user="${source_user}"
         echo "${PASSWORD}" | oras login "${REGISTRY}" -u "${src_user}" --password-stdin
         echo "${QUAY_PASSWORD}" | oras login "${QUAY_REGISTRY}" -u "${QUAY_USERNAME}" --password-stdin
+        if [[ "${TRUST_MODE}" == "resign" || "${SIGN_DESTINATION}" == "true" || "${VERIFY_DESTINATION}" == "true" ]]; then
+          echo "${QUAY_PASSWORD}" | docker login "${QUAY_REGISTRY}" -u "${QUAY_USERNAME}" --password-stdin
+        fi
 
         case "${TRUST_MODE}" in
           copy-only)
