@@ -1,93 +1,122 @@
 # gemara-publish-oci
 
-GitHub Action for **transport only**: push a Gemara OCI artifact to a container registry. **Pack, manifest shape, and media types** belong in **[go-gemara](https://github.com/gemaraproj/go-gemara)** ([issue #60](https://github.com/gemaraproj/go-gemara/issues/60)). This repo is intentionally small: **`action.yml` only** (one composite `run` step; no extra scripts) — see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**. For **maintainer review** (scope, SDK split, open questions), see **[docs/DESIGN-FOR-REVIEW.md](docs/DESIGN-FOR-REVIEW.md)**.
+GitHub Action for Gemara OCI publish and trust orchestration. Phases (single `uses:`; toggles control each phase):
 
-## Principles (SDK vs. this action)
+| Phase | What it does |
+|--------|----------------|
+| **1 — Publish** | Push to the **source** registry: `layout-copy` (ORAS from an OCI layout), `sdk` (your `gemara_binary`), or `gemara-file` (`tools/publish` + go-gemara). |
+| **2 — Trust (source)** | Optional keyless **cosign** sign/verify on the **source** digest. |
+| **3 — Promote (optional)** | Optional **ORAS** copy to Quay (or another registry) with `trust_mode`. |
+| **4 — Trust (destination)** | Optional sign/verify on the **destination** digest when promotion and flags request it. |
 
-- **SDK** = Pack / Unpack + `oras.Copy` semantics (what gets pushed).
-- **Action** = registry auth + run a **released** CLI (ORAS today; **`gemara`** when available) + expose **`digest`**.
-- **Do not** encode layer-level `oras push` assembly here; that stays in the SDK or org-infra until the contract is stable.
+**Outputs:** `digest` / `source_digest` and `source_ref` are always **normalized** to the form `sha256:<64 lowercase hex>` / `registry/repo@sha256:…` for stable downstream use.
 
-## Modes (`publish_mode`)
+**Who owns the contract:** [go-gemara](https://github.com/gemaraproj/go-gemara) owns bundle media types, manifest shape, and Pack/Assemble. This action does not.
+
+### Boundaries (what is *not* in this action)
+
+- **SLSA provenance**, **SBOM**, and **vulnerability** attestations typically produced with `actions/attest*` or org **reusable workflows** (for example in `complytime/org-infra`) are **out of scope** here—add them in **separate job steps** or a caller workflow *after* publish, if your policy needs them.
+- **Branch / environment / approval** gates are **not** enforced inside the composite. Use **caller workflow** `if:` and GitHub **Environments** (see [Caller patterns](#caller-patterns) below).
+- Composites only receive **string** inputs. Boolean-like flags are the literal strings **`"true"`** and **`"false"`** (see table below).
+
+| Typical “boolean” input | Set to |
+|------------------------|--------|
+| `sign_source`, `verify_source`, `plain_http`, `promote_to_quay`, `sign_destination`, `verify_destination` | `"true"` or `"false"` |
+
+### Caller patterns
+
+Reusable **workflows** can set `concurrency:`, `environment:`, and `if: github.ref_protected` on a **job**. A **composite** cannot—so apply these on the **job** (or parent workflow) that invokes this action:
+
+- **Concurrency:** add a `concurrency:` group on the publish job (for example keyed by `repository` + `tag` or by digest) so overlapping releases do not clobber one another.
+- **Protected branches / tags:** use `if: github.ref_protected` (or your org’s rules) on the same job for production releases.
+- **Environments (manual approval):** set `environment: production` (or similar) on the **job** so the step that uses this action runs under environment protection rules, matching how org-infra sign workflows use `sign_environment`.
+
+## Publish modes (`publish_mode`)
 
 | Value | Behavior |
 |-------|----------|
-| **`layout-copy`** (default) | Installs ORAS and runs **`oras cp --from-oci-layout`** to the registry. Use while Pack exports an **OCI image layout** on disk (same family of layout **complyctl** caches — see [001 research](https://github.com/complytime/complyctl/blob/main/specs/001-gemara-native-workflow/research.md)). |
-| **`sdk`** | Runs **`gemara_binary`** with **`sdk_args`** after `oras login`. Use once **go-gemara** ships a stable push CLI so **one codebase** owns Pack + `oras.Copy`. Exports **`GEMARA_REGISTRY`**, **`GEMARA_REPOSITORY`**, **`GEMARA_TAG`** for the CLI. |
+| `layout-copy` | Copy `oci_layout_path:layout_ref` with `oras cp --from-oci-layout`. |
+| `sdk` | Invoke `gemara_binary` + `sdk_args` and resolve digest from destination ref. |
+| `gemara-file` | Pack the root Gemara YAML with **go-gemara** (`tools/publish`; same module as callers `go run`), then push to the registry (no nested action). |
 
-For **direct multi-file `oras push`** from repo trees (pre-Pack), see [complytime-policies OCI spec](https://github.com/complytime/complytime-policies/blob/main/docs/oci-publish-spec.md) and [org-infra#172](https://github.com/complytime/org-infra/issues/172).
+## Promotion and trust
 
-## Inputs (summary)
+- Set `promote_to_quay: "true"` to run the standard GHCR -> Quay promotion path.
+- Standard path defaults (no extra inputs needed):
+  - `trust_mode: resign`
+  - `sign_destination: "true"`
+  - `verify_destination: "true"`
+- Optional compatibility trust modes remain available:
+  - `copy-only`: copy payload tag only.
+  - `copy-referrers`: recursive copy to include referrer graph when registry support is available.
+- Source and destination verification use Fulcio issuer
+  `https://token.actions.githubusercontent.com`.
+- This repository's CI validates source-publish and source-signing behavior. Cross-registry
+  promotion verification is authoritative in caller repositories (for example
+  `complytime-policies`) where Quay credentials and release controls live.
+
+## Key inputs
 
 | Input | Description |
 |-------|-------------|
-| `publish_mode` | `layout-copy` or `sdk` |
-| `registry` | Registry host (default `ghcr.io`) |
-| `repository` | Path without host (e.g. `org/name`) |
-| `tag` | Tag to push |
-| `oci_layout_path` / `pack_path` | OCI layout dir (`layout-copy` only) |
-| `layout_ref` | Layout reference for `oras cp PATH:REF` (`layout-copy` only, **required** in that mode) |
-| `gemara_binary` | Path or name on PATH (`sdk` only, **required** in that mode) |
-| `sdk_args` | Arguments for the gemara CLI (`sdk` only) |
-| `username` | Registry user; defaults to `GITHUB_ACTOR` when using `password` |
-| `password` | Token; omit only with `plain_http: true` |
-| `oras_version` | ORAS version for `layout-copy` and digest resolution (default `1.2.0`) |
-| `plain_http` | `true` for HTTP registries (e.g. local CI) |
+| `registry`, `repository`, `tag` | Source destination for publish. |
+| `username`, `password` | Source registry auth. |
+| `sign_source`, `verify_source` | Source signature controls. |
+| `promote_to_quay` | Enable Quay promotion. |
+| `quay_registry`, `quay_image`, `quay_tag`, `quay_username`, `quay_password` | Promotion destination/auth. |
+| `trust_mode` | `copy-only`, `copy-referrers`, or `resign`. |
+| `verify_destination` | Destination signature verification control. |
+| `allowed_identity_regex` | Optional cosign identity regex override. |
 
 ## Outputs
 
 | Output | Description |
 |--------|-------------|
-| `digest` | Manifest digest (`sha256:...`) |
+| `digest` / `source_digest` | Source manifest digest, **always** `sha256:` + 64 hex (lowercase). |
+| `source_ref` | `registry/repository@sha256:…` (digest normalized as above). |
+| `destination_digest` | Destination digest after promotion. |
+| `destination_ref` | Destination image reference with digest. |
+| `verified_source` | `true` if source verify passed. |
+| `verified_destination` | `true` if destination verify passed. |
+| `trust_mode` | Effective trust mode used. |
 
-## Usage — `layout-copy` (GHCR)
+## Minimal caller example (Option 3)
 
 ```yaml
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: OWNER/gemara-publish-oci@v0.1.0
-        id: publish
+      - id: publish
+        uses: complytime/oci-artifact@<pinned-sha>
         with:
-          publish_mode: layout-copy
+          publish_mode: gemara-file
           registry: ghcr.io
           repository: ${{ github.repository }}
-          tag: sha-${{ github.sha }}
-          oci_layout_path: ./layout
-          layout_ref: v1
+          tag: ${{ github.ref_name }}
+          file: bundles/cis-fedora-l1-workstation.yaml
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+          promote_to_quay: "true"
+          quay_image: continuouscompliance/complytime-policies
+          quay_username: ${{ secrets.QUAY_ROBOT_USERNAME }}
+          quay_password: ${{ secrets.QUAY_ROBOT_TOKEN }}
 ```
 
-## Usage — `sdk` (when `gemara` CLI exists)
+## Repository layout
 
-```yaml
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-      - run: go install github.com/gemaraproj/go-gemara/cmd/gemara@VERSION   # example — TBD
-      - uses: OWNER/gemara-publish-oci@v0.1.0
-        id: publish
-        with:
-          publish_mode: sdk
-          gemara_binary: gemara
-          sdk_args: publish oci
-          registry: ghcr.io
-          repository: ${{ github.repository }}
-          tag: sha-${{ github.sha }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-```
-
-Subcommand and flags for **`sdk_args`** must match **go-gemara**; the snippet is illustrative until a release documents them.
+- **`tools/publish/`** — small Go CLI used **only** when `publish_mode: gemara-file`. It wires `bundle.Assemble` / `bundle.Pack` and `oras.Copy`; SDK semantics stay in **go-gemara** `v0.4.0+`.
+- **`testdata/minimal-layout/`** — tiny OCI layout for **this repo’s CI** (`layout-copy`). It is not part of the action runtime for consumers.
 
 ## Pinning
 
-Use **`@v0.1.0`** or a **full commit SHA**, not `@main`. In the examples above, replace **`OWNER`** with the GitHub org or user that hosts this repository (for example `gemaraproj` after transfer).
+Use a full commit SHA for production callers. Avoid floating refs.
 
 ## License
 

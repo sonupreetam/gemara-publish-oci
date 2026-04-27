@@ -1,6 +1,11 @@
-# Composite action — CI glue only. Pack / manifest / media types: go-gemara (docs/ARCHITECTURE.md).
+# Phases: (1) publish to source registry, (2) keyless sign/verify on source, (3) optional
+# promote, (4) sign/verify on destination. This action does not generate SLSA or SBOM
+# attestations—callers add those in separate workflow steps or reusables if required.
+# See README: boundaries, and caller patterns (concurrency, ref gates, environments).
 name: Publish Gemara OCI bundle
-description: Publish a Gemara OCI artifact (layout-copy via ORAS, or invoke gemara CLI)
+description: >-
+  Composite: publish (layout, sdk, or gemara-file), then optional cosign and Quay promotion.
+  Inputs are mostly strings; boolean flags use the strings "true" / "false".
 
 branding:
   icon: package
@@ -8,7 +13,7 @@ branding:
 
 inputs:
   publish_mode:
-    description: layout-copy = oras cp from OCI layout; sdk = run gemara_binary + sdk_args (once go-gemara ships a push CLI)
+    description: layout-copy uses oras from a layout; sdk runs gemara_binary; gemara-file packs root YAML with tools/publish (go-gemara) and pushes
     required: false
     default: layout-copy
   registry:
@@ -57,17 +62,177 @@ inputs:
     description: Use HTTP to registry (e.g. localhost CI)
     required: false
     default: "false"
+  file:
+    description: Root Gemara bundle YAML (gemara-file mode)
+    required: false
+    default: ""
+  validate:
+    description: Validate bundle before packing (gemara-file mode)
+    required: false
+    default: "true"
+  bundle_version:
+    description: Bundle format version (gemara-file mode)
+    required: false
+    default: "1"
+  working_directory:
+    description: Working directory for gemara-file mode
+    required: false
+    default: "."
+  sign_source:
+    description: Keyless-sign source digest after publish
+    required: false
+    default: "true"
+  verify_source:
+    description: Verify source digest signature after sign/publish
+    required: false
+    default: "true"
+  promote_to_quay:
+    description: Copy artifact from source registry to Quay
+    required: false
+    default: "false"
+  quay_registry:
+    description: Destination registry for promotion
+    required: false
+    default: quay.io
+  quay_image:
+    description: Destination image path without registry (required when promote_to_quay=true)
+    required: false
+    default: ""
+  quay_tag:
+    description: Destination tag (defaults to tag input)
+    required: false
+    default: ""
+  quay_username:
+    description: Quay robot or service user
+    required: false
+    default: ""
+  quay_password:
+    description: Quay token/password
+    required: false
+    default: ""
+  trust_mode:
+    description: copy-only, copy-referrers, or resign destination
+    required: false
+    default: resign
+  sign_destination:
+    description: Keyless-sign destination digest (usually true for trust_mode=resign)
+    required: false
+    default: "true"
+  verify_destination:
+    description: Verify destination digest signature
+    required: false
+    default: "true"
+  allowed_identity_regex:
+    description: Optional regex for certificate identity in cosign verify
+    required: false
+    default: ""
+  cosign_version:
+    description: Cosign release version
+    required: false
+    default: v2.4.0
 
 outputs:
   digest:
-    description: Manifest digest (sha256:...)
-    value: ${{ steps.publish.outputs.digest }}
+    description: Source manifest digest (sha256:...)
+    value: ${{ steps.finalize.outputs.source_digest }}
+  source_ref:
+    description: Published source reference with digest
+    value: ${{ steps.finalize.outputs.source_ref }}
+  source_digest:
+    description: Published source digest
+    value: ${{ steps.finalize.outputs.source_digest }}
+  destination_ref:
+    description: Destination reference with digest after promotion
+    value: ${{ steps.finalize.outputs.destination_ref }}
+  destination_digest:
+    description: Destination digest after promotion
+    value: ${{ steps.finalize.outputs.destination_digest }}
+  trust_mode:
+    description: Effective trust mode used for destination handling
+    value: ${{ steps.finalize.outputs.trust_mode }}
+  verified_source:
+    description: true when source verification step passed
+    value: ${{ steps.finalize.outputs.verified_source }}
+  verified_destination:
+    description: true when destination verification step passed
+    value: ${{ steps.finalize.outputs.verified_destination }}
 
 runs:
   using: composite
   steps:
-    - name: Publish
+    - name: Validate inputs
+      shell: bash
+      env:
+        PUBLISH_MODE: ${{ inputs.publish_mode }}
+        LAYOUT_REF: ${{ inputs.layout_ref }}
+        FILE: ${{ inputs.file }}
+        GEMARA_BINARY: ${{ inputs.gemara_binary }}
+        PLAIN_HTTP: ${{ inputs.plain_http }}
+        PASSWORD: ${{ inputs.password }}
+        PROMOTE: ${{ inputs.promote_to_quay }}
+        QUAY_IMAGE: ${{ inputs.quay_image }}
+        QUAY_USERNAME: ${{ inputs.quay_username }}
+        QUAY_PASSWORD: ${{ inputs.quay_password }}
+        TRUST_MODE: ${{ inputs.trust_mode }}
+      run: |
+        set -euo pipefail
+        PM="${PUBLISH_MODE:-layout-copy}"
+        case "$PM" in
+          layout-copy|sdk|gemara-file) ;;
+          *)
+            echo "::error::publish_mode must be one of: layout-copy, sdk, gemara-file (got: ${PM})"
+            exit 1
+            ;;
+        esac
+        if [[ "$PM" == "layout-copy" && -z "${LAYOUT_REF}" ]]; then
+          echo "::error::layout_ref is required when publish_mode is layout-copy"
+          exit 1
+        fi
+        if [[ "$PM" == "gemara-file" && -z "${FILE}" ]]; then
+          echo "::error::file is required when publish_mode is gemara-file"
+          exit 1
+        fi
+        if [[ "$PM" == "sdk" && -z "${GEMARA_BINARY}" ]]; then
+          echo "::error::gemara_binary is required when publish_mode is sdk"
+          exit 1
+        fi
+        if [[ "${PLAIN_HTTP}" != "true" && -z "${PASSWORD}" ]]; then
+          echo "::error::password is required for HTTPS (set plain_http: true only for HTTP registries, e.g. local CI for layout-copy/sdk)"
+          exit 1
+        fi
+        if [[ "$PM" == "gemara-file" && "${PLAIN_HTTP}" == "true" ]]; then
+          echo "::error::gemara-file publishes over HTTPS; plain_http is not supported for this mode (use layout-copy with a prebuilt OCI layout for plain HTTP, or an HTTPS registry)"
+          exit 1
+        fi
+        case "${TRUST_MODE}" in
+          copy-only|copy-referrers|resign) ;;
+          *)
+            echo "::error::trust_mode must be one of: copy-only, copy-referrers, resign (got: ${TRUST_MODE})"
+            exit 1
+            ;;
+        esac
+        if [[ "${PROMOTE}" == "true" ]]; then
+          if [[ -z "${QUAY_IMAGE}" || -z "${QUAY_USERNAME}" || -z "${QUAY_PASSWORD}" ]]; then
+            echo "::error::quay_image, quay_username, and quay_password are required when promote_to_quay=true"
+            exit 1
+          fi
+        fi
+
+    - name: Install ORAS CLI
+      uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
+      with:
+        version: ${{ inputs.oras_version }}
+
+    - name: Install cosign
+      if: >-
+        inputs.sign_source == 'true' || inputs.verify_source == 'true' || inputs.promote_to_quay == 'true'
+      uses: sigstore/cosign-installer@4959ce089c160fddf62f7b42464195ba1a56d382 # v3.6.0
+      with:
+        cosign-release: ${{ inputs.cosign_version }}
+
+    - name: Publish (layout-copy or sdk)
       id: publish
+      if: ${{ inputs.publish_mode != 'gemara-file' }}
       shell: bash
       env:
         PUBLISH_MODE: ${{ inputs.publish_mode }}
@@ -80,35 +245,10 @@ runs:
         SDK_ARGS: ${{ inputs.sdk_args }}
         USERNAME: ${{ inputs.username }}
         PASSWORD: ${{ inputs.password }}
-        ORAS_VERSION: ${{ inputs.oras_version }}
         PLAIN_HTTP: ${{ inputs.plain_http }}
       run: |
         set -euo pipefail
         : "${GITHUB_OUTPUT:?}"
-
-        ORAS_VERSION="${ORAS_VERSION:-1.2.0}"
-        install_dir="${RUNNER_TEMP:-/tmp}/oras-install-${ORAS_VERSION}"
-        mkdir -p "$install_dir"
-
-        arch=$(uname -m)
-        case "$arch" in
-        x86_64) arch=amd64 ;;
-        aarch64) arch=arm64 ;;
-        arm64) arch=arm64 ;;
-        esac
-
-        kernel=$(uname -s | tr '[:upper:]' '[:lower:]')
-        case "$kernel" in
-        linux) oras_os=linux ;;
-        darwin) oras_os=darwin ;;
-        *) echo "::error::Unsupported OS: ${kernel}"; exit 1 ;;
-        esac
-
-        curl -fsSL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_${oras_os}_${arch}.tar.gz" \
-          | tar -xz -C "$install_dir" oras
-        chmod +x "${install_dir}/oras"
-        export PATH="${install_dir}:${PATH}"
-        oras version
 
         REGISTRY="${REGISTRY:?}"
         REPOSITORY="${REPOSITORY:?}"
@@ -135,6 +275,23 @@ runs:
           fi
         }
 
+        # Emit registry digest as sha256:<64-hex> for stable downstream refs and cosign.
+        normalize_oci_digest() {
+          local d="${1//$'\r'/}"
+          d="${d//$'\n'/}"
+          d="${d,,}"
+          if [[ "$d" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "$d"
+            return 0
+          fi
+          if [[ "$d" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "sha256:$d"
+            return 0
+          fi
+          echo "::error::Expected sha256 manifest digest, got: $1" >&2
+          return 1
+        }
+
         write_digest() {
           local CP_OUT="$1"
           local DIGEST
@@ -142,6 +299,9 @@ runs:
           [[ -n "$DIGEST" ]] || DIGEST=$(printf '%s\n' "$CP_OUT" | sed -n 's/^[[:space:]]*Digest:[[:space:]]*//p' | tail -1 | tr -d '\r\n')
           if [[ -z "$DIGEST" ]]; then
             echo "::error::Could not resolve digest"
+            exit 1
+          fi
+          if ! DIGEST=$(normalize_oci_digest "$DIGEST"); then
             exit 1
           fi
           echo "digest=$DIGEST" >>"$GITHUB_OUTPUT"
@@ -182,7 +342,195 @@ runs:
           write_digest "$CP_OUT"
           ;;
         *)
-          echo "::error::Unknown publish_mode: ${PUBLISH_MODE}"
+          echo "::error::Unknown publish_mode: ${PUBLISH_MODE} (supported: layout-copy, sdk, gemara-file)"
           exit 1
           ;;
         esac
+
+    - name: Set up Go (gemara-file)
+      if: ${{ inputs.publish_mode == 'gemara-file' }}
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      with:
+        go-version-file: ${{ github.action_path }}/tools/publish/go.mod
+        cache-dependency-path: ${{ github.action_path }}/tools/publish/go.sum
+
+    - name: Publish (gemara-file)
+      id: publish_gemara
+      if: ${{ inputs.publish_mode == 'gemara-file' }}
+      shell: bash
+      env:
+        GEMARA_REGISTRY_PASSWORD: ${{ inputs.password }}
+      run: |
+        set -euo pipefail
+        cd "${GITHUB_WORKSPACE}/${{ inputs.working_directory }}"
+        FILE="$(realpath "${{ inputs.file }}")"
+        VALIDATE_FLAG=""
+        if [[ "${{ inputs.validate }}" != "true" ]]; then
+          VALIDATE_FLAG="-validate=false"
+        fi
+        go run -C "${{ github.action_path }}/tools/publish" . \
+          -registry="${{ inputs.registry }}" \
+          -repository="${{ inputs.repository }}" \
+          -tag="${{ inputs.tag }}" \
+          -file="$FILE" \
+          -username="${{ inputs.username }}" \
+          -bundle-version="${{ inputs.bundle_version }}" \
+          ${VALIDATE_FLAG}
+
+    - name: Sign, verify, and optionally promote to Quay
+      id: finalize
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REPOSITORY: ${{ inputs.repository }}
+        TAG: ${{ inputs.tag }}
+        PASSWORD: ${{ inputs.password }}
+        USERNAME: ${{ inputs.username }}
+        PUBLISH_DIGEST: ${{ steps.publish.outputs.digest }}
+        PUBLISH_GEMARA_DIGEST: ${{ steps.publish_gemara.outputs.digest }}
+        SIGN_SOURCE: ${{ inputs.sign_source }}
+        VERIFY_SOURCE: ${{ inputs.verify_source }}
+        PROMOTE_TO_QUAY: ${{ inputs.promote_to_quay }}
+        QUAY_REGISTRY: ${{ inputs.quay_registry }}
+        QUAY_IMAGE: ${{ inputs.quay_image }}
+        QUAY_TAG: ${{ inputs.quay_tag }}
+        QUAY_USERNAME: ${{ inputs.quay_username }}
+        QUAY_PASSWORD: ${{ inputs.quay_password }}
+        TRUST_MODE: ${{ inputs.trust_mode }}
+        SIGN_DESTINATION: ${{ inputs.sign_destination }}
+        VERIFY_DESTINATION: ${{ inputs.verify_destination }}
+        ALLOWED_IDENTITY_REGEX: ${{ inputs.allowed_identity_regex }}
+        DEFAULT_ALLOWED_IDENTITY_REGEX: ${{ format('^https://github.com/{0}/.github/workflows/', github.repository) }}
+      run: |
+        set -euo pipefail
+        : "${GITHUB_OUTPUT:?}"
+
+        normalize_oci_digest() {
+          local d="${1//$'\r'/}"
+          d="${d//$'\n'/}"
+          d="${d,,}"
+          if [[ "$d" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "$d"
+            return 0
+          fi
+          if [[ "$d" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "sha256:$d"
+            return 0
+          fi
+          echo "::error::Expected sha256 manifest digest, got: $1" >&2
+          return 1
+        }
+
+        SOURCE_DIGEST="${PUBLISH_DIGEST:-}"
+        if [[ -z "${SOURCE_DIGEST}" ]]; then
+          SOURCE_DIGEST="${PUBLISH_GEMARA_DIGEST:-}"
+        fi
+        if [[ -z "${SOURCE_DIGEST:-}" ]]; then
+          echo "::error::No digest produced by publish step."
+          exit 1
+        fi
+        if ! SOURCE_DIGEST=$(normalize_oci_digest "$SOURCE_DIGEST"); then
+          exit 1
+        fi
+
+        if [[ -z "${ALLOWED_IDENTITY_REGEX:-}" ]]; then
+          ALLOWED_IDENTITY_REGEX="${DEFAULT_ALLOWED_IDENTITY_REGEX}"
+        fi
+
+        SOURCE_REF_TAGGED="${REGISTRY}/${REPOSITORY}:${TAG}"
+        SOURCE_REF="${REGISTRY}/${REPOSITORY}@${SOURCE_DIGEST}"
+        echo "source_ref=${SOURCE_REF}" >> "${GITHUB_OUTPUT}"
+        echo "source_digest=${SOURCE_DIGEST}" >> "${GITHUB_OUTPUT}"
+        echo "destination_ref=" >> "${GITHUB_OUTPUT}"
+        echo "destination_digest=" >> "${GITHUB_OUTPUT}"
+        echo "trust_mode=${TRUST_MODE}" >> "${GITHUB_OUTPUT}"
+        echo "verified_source=false" >> "${GITHUB_OUTPUT}"
+        echo "verified_destination=false" >> "${GITHUB_OUTPUT}"
+
+        verify_ref() {
+          local ref="$1"
+          cosign verify "$ref" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            --certificate-identity-regexp "${ALLOWED_IDENTITY_REGEX}" >/dev/null
+        }
+
+        source_user="${USERNAME:-${GITHUB_ACTOR:-oauth2}}"
+        if [[ "${SIGN_SOURCE}" == "true" || "${VERIFY_SOURCE}" == "true" ]]; then
+          if [[ -n "${PASSWORD:-}" ]]; then
+            echo "${PASSWORD}" | docker login "${REGISTRY}" -u "${source_user}" --password-stdin
+          fi
+        fi
+
+        if [[ "${SIGN_SOURCE}" == "true" ]]; then
+          echo "Signing source digest: ${SOURCE_REF}"
+          cosign sign -y "${SOURCE_REF}"
+        fi
+
+        if [[ "${VERIFY_SOURCE}" == "true" ]]; then
+          echo "Verifying source digest: ${SOURCE_REF}"
+          verify_ref "${SOURCE_REF}"
+          echo "verified_source=true" >> "${GITHUB_OUTPUT}"
+        fi
+
+        if [[ "${PROMOTE_TO_QUAY}" != "true" ]]; then
+          exit 0
+        fi
+
+        if [[ -z "${QUAY_IMAGE}" || -z "${QUAY_USERNAME}" || -z "${QUAY_PASSWORD}" ]]; then
+          echo "::error::quay_image, quay_username, and quay_password are required when promote_to_quay=true."
+          exit 1
+        fi
+        if [[ -z "${PASSWORD}" ]]; then
+          echo "::error::password is required to pull source image from registry during promotion."
+          exit 1
+        fi
+
+        DEST_TAG="${QUAY_TAG:-${TAG}}"
+        DEST_REF_TAGGED="${QUAY_REGISTRY}/${QUAY_IMAGE}:${DEST_TAG}"
+
+        src_user="${source_user}"
+        echo "${PASSWORD}" | oras login "${REGISTRY}" -u "${src_user}" --password-stdin
+        echo "${QUAY_PASSWORD}" | oras login "${QUAY_REGISTRY}" -u "${QUAY_USERNAME}" --password-stdin
+        if [[ "${TRUST_MODE}" == "resign" || "${SIGN_DESTINATION}" == "true" || "${VERIFY_DESTINATION}" == "true" ]]; then
+          echo "${QUAY_PASSWORD}" | docker login "${QUAY_REGISTRY}" -u "${QUAY_USERNAME}" --password-stdin
+        fi
+
+        case "${TRUST_MODE}" in
+          copy-only)
+            oras copy "${SOURCE_REF_TAGGED}" "${DEST_REF_TAGGED}"
+            ;;
+          copy-referrers)
+            oras copy --recursive "${SOURCE_REF_TAGGED}" "${DEST_REF_TAGGED}"
+            ;;
+          resign)
+            oras copy "${SOURCE_REF_TAGGED}" "${DEST_REF_TAGGED}"
+            ;;
+          *)
+            echo "::error::Unsupported trust_mode: ${TRUST_MODE} (copy-only, copy-referrers, resign)"
+            exit 1
+            ;;
+        esac
+
+        DEST_DIGEST="$(oras resolve "${DEST_REF_TAGGED}" | tr -d '\r\n')"
+        if [[ -z "${DEST_DIGEST}" ]]; then
+          echo "::error::Failed to resolve destination digest for ${DEST_REF_TAGGED}"
+          exit 1
+        fi
+        if ! DEST_DIGEST=$(normalize_oci_digest "$DEST_DIGEST"); then
+          exit 1
+        fi
+        DEST_REF="${QUAY_REGISTRY}/${QUAY_IMAGE}@${DEST_DIGEST}"
+
+        if [[ "${TRUST_MODE}" == "resign" || "${SIGN_DESTINATION}" == "true" ]]; then
+          echo "Signing destination digest: ${DEST_REF}"
+          cosign sign -y "${DEST_REF}"
+        fi
+
+        if [[ "${VERIFY_DESTINATION}" == "true" ]]; then
+          echo "Verifying destination digest: ${DEST_REF}"
+          verify_ref "${DEST_REF}"
+          echo "verified_destination=true" >> "${GITHUB_OUTPUT}"
+        fi
+
+        echo "destination_ref=${DEST_REF}" >> "${GITHUB_OUTPUT}"
+        echo "destination_digest=${DEST_DIGEST}" >> "${GITHUB_OUTPUT}"
