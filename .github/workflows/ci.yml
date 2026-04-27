@@ -2,6 +2,17 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      run_quay_spike:
+        description: Run GHCR -> Quay trust-mode spike jobs
+        required: false
+        type: boolean
+        default: false
+      quay_dest_image:
+        description: Quay namespace/repository without registry
+        required: false
+        type: string
+        default: test_complytime/complytime-policies
   push:
     branches: [main]
   pull_request:
@@ -61,7 +72,7 @@ jobs:
           echo "${{ steps.publish.outputs.digest }}" | grep -qE '^sha256:[a-f0-9]{64}$'
 
   e2e-policy-oci-ghcr-sign-verify:
-    name: E2E policy OCI (GHCR) + keyless sign + verify
+    name: E2E policy OCI (GHCR) via composite sign+verify
     needs: validate
     runs-on: ubuntu-latest
     if: >
@@ -93,29 +104,83 @@ jobs:
           layout_ref: v1
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+          sign_source: "true"
+          verify_source: "true"
+          promote_to_quay: "false"
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@4959ce089c160fddf62f7b42464195ba1a56d382 # v3.6.0
+      - name: Verify composite outputs
+        run: |
+          test -n "${{ steps.policy.outputs.source_ref }}"
+          test -n "${{ steps.policy.outputs.source_digest }}"
+          test "${{ steps.policy.outputs.verified_source }}" = "true"
+          echo "source_ref=${{ steps.policy.outputs.source_ref }}"
+          echo "source_digest=${{ steps.policy.outputs.source_digest }}"
+
+  e2e-ghcr-quay-trust-spike:
+    name: GHCR -> Quay trust-mode spike
+    needs: validate
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      && inputs.run_quay_spike
+      && !(
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name != github.repository
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        trust_mode: [copy-referrers, resign]
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Registry path (GHCR is lowercase)
+        id: reg
+        run: |
+          echo "repository_lc=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Run trust mode
+        id: trust
+        env:
+          QUAY_USER: ${{ secrets.QUAY_ROBOT_USERNAME }}
+          QUAY_TOKEN: ${{ secrets.QUAY_ROBOT_TOKEN }}
+        run: |
+          if [ -z "${QUAY_USER}" ] || [ -z "${QUAY_TOKEN}" ]; then
+            echo "::error::QUAY_ROBOT_USERNAME and QUAY_ROBOT_TOKEN are required for spike runs."
+            exit 1
+          fi
+
+      - name: Publish + promote + verify
+        id: publish
+        uses: ./
         with:
-          cosign-release: v2.4.0
+          publish_mode: layout-copy
+          registry: ghcr.io
+          repository: ${{ steps.reg.outputs.repository_lc }}
+          tag: spike-${{ matrix.trust_mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          oci_layout_path: testdata/minimal-layout
+          layout_ref: v1
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          sign_source: "true"
+          verify_source: "true"
+          promote_to_quay: "true"
+          quay_registry: quay.io
+          quay_image: ${{ inputs.quay_dest_image }}
+          quay_username: ${{ secrets.QUAY_ROBOT_USERNAME }}
+          quay_password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+          trust_mode: ${{ matrix.trust_mode }}
+          sign_destination: ${{ matrix.trust_mode == 'resign' && 'true' || 'false' }}
+          verify_destination: "true"
 
-      - name: Keyless sign published digest
-        env:
-          REF: ghcr.io/${{ steps.reg.outputs.repository_lc }}@${{ steps.policy.outputs.digest }}
+      - name: Print spike result
         run: |
-          set -euo pipefail
-          echo "Signing: ${REF}"
-          cosign sign -y "$REF"
-
-      - name: Verify signature (same workflow identity)
-        env:
-          REF: ghcr.io/${{ steps.reg.outputs.repository_lc }}@${{ steps.policy.outputs.digest }}
-          GITHUB_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # Fulcio: GitHub Actions OIDC subject for this repository’s workflows
-          ident="^https://github.com/${GITHUB_REPO}/.github/workflows/"
-          cosign verify "$REF" \
-            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-            --certificate-identity-regexp "$ident"
-          echo "cosign verify OK: ${REF}"
+          echo "trust_mode=${{ matrix.trust_mode }}"
+          echo "source_ref=${{ steps.publish.outputs.source_ref }}"
+          echo "destination_ref=${{ steps.publish.outputs.destination_ref }}"
+          echo "verified_source=${{ steps.publish.outputs.verified_source }}"
+          echo "verified_destination=${{ steps.publish.outputs.verified_destination }}"
