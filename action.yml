@@ -288,7 +288,8 @@ runs:
         TAG: ${{ inputs.tag }}
         PASSWORD: ${{ inputs.password }}
         USERNAME: ${{ inputs.username }}
-        SOURCE_DIGEST: ${{ steps.publish.outputs.digest != '' && steps.publish.outputs.digest || steps.publish_gemara.outputs.digest }}
+        PUBLISH_DIGEST: ${{ steps.publish.outputs.digest }}
+        PUBLISH_GEMARA_DIGEST: ${{ steps.publish_gemara.outputs.digest }}
         SIGN_SOURCE: ${{ inputs.sign_source }}
         VERIFY_SOURCE: ${{ inputs.verify_source }}
         PROMOTE_TO_QUAY: ${{ inputs.promote_to_quay }}
@@ -306,6 +307,10 @@ runs:
         set -euo pipefail
         : "${GITHUB_OUTPUT:?}"
 
+        SOURCE_DIGEST="${PUBLISH_DIGEST:-}"
+        if [[ -z "${SOURCE_DIGEST}" ]]; then
+          SOURCE_DIGEST="${PUBLISH_GEMARA_DIGEST:-}"
+        fi
         if [[ -z "${SOURCE_DIGEST:-}" ]]; then
           echo "::error::No digest produced by publish step."
           exit 1
