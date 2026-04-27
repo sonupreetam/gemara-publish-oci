@@ -60,6 +60,8 @@ jobs:
           oci_layout_path: testdata/minimal-layout
           layout_ref: v1
           plain_http: true
+          sign_source: "false"
+          verify_source: "false"
 
       # sdk mode is not exercised here: a smoke test needs a real push to DEST so
       # digest resolution succeeds; sdk_args is word-split in action.yml, so a
