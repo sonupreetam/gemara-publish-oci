@@ -87,51 +87,26 @@ inputs:
       Copy artifact from the source registry to destination_* (second registry). Use any OCI registry.
     required: false
     default: "false"
-  promote_to_quay:
-    description: Deprecated. Use promote_to_destination (same behavior).
-    required: false
-    default: "false"
   destination_registry:
     description: >-
       Promotion destination registry host (e.g. quay.io, ghcr.io, *.dkr.ecr.*.amazonaws.com).
-      When empty, falls back to quay_registry for backward compatibility.
+      Required when promote_to_destination is true.
     required: false
     default: ""
-  quay_registry:
-    description: Deprecated. Use destination_registry. Defaults to quay.io when unset (legacy promotion path).
-    required: false
-    default: quay.io
   destination_repository:
-    description: >-
-      Promotion image path without registry host (namespace/repository). When empty, falls back to quay_image.
-    required: false
-    default: ""
-  quay_image:
-    description: Deprecated. Use destination_repository.
+    description: Promotion image path without registry host (namespace/repository).
     required: false
     default: ""
   destination_tag:
-    description: Destination tag when promoting (defaults to tag input when empty). Falls back to quay_tag.
-    required: false
-    default: ""
-  quay_tag:
-    description: Deprecated. Use destination_tag.
+    description: Destination tag when promoting (defaults to source tag input when empty).
     required: false
     default: ""
   destination_username:
-    description: Credentials for destination registry (promotion push). Falls back to quay_username.
-    required: false
-    default: ""
-  quay_username:
-    description: Deprecated. Use destination_username.
+    description: Credentials for destination registry (promotion push).
     required: false
     default: ""
   destination_password:
-    description: Token/password for destination registry. Falls back to quay_password.
-    required: false
-    default: ""
-  quay_password:
-    description: Deprecated. Use destination_password.
+    description: Token/password for destination registry (promotion).
     required: false
     default: ""
   trust_mode:
@@ -197,7 +172,7 @@ runs:
     - name: Install cosign
       if: >-
         inputs.sign_source == 'true' || inputs.verify_source == 'true' ||
-        inputs.promote_to_destination == 'true' || inputs.promote_to_quay == 'true'
+        inputs.promote_to_destination == 'true'
       uses: sigstore/cosign-installer@4959ce089c160fddf62f7b42464195ba1a56d382 # v3.6.0
       with:
         cosign-release: ${{ inputs.cosign_version }}
@@ -328,16 +303,12 @@ runs:
         SIGN_SOURCE: ${{ inputs.sign_source }}
         VERIFY_SOURCE: ${{ inputs.verify_source }}
         PROMOTE: >-
-          ${{ (inputs.promote_to_destination == 'true' || inputs.promote_to_quay == 'true') && 'true' || 'false' }}
-        DEST_REGISTRY: >-
-          ${{ inputs.destination_registry != '' && inputs.destination_registry || inputs.quay_registry }}
-        DEST_REPOSITORY: >-
-          ${{ inputs.destination_repository != '' && inputs.destination_repository || inputs.quay_image }}
-        DEST_TAG: ${{ inputs.destination_tag != '' && inputs.destination_tag || inputs.quay_tag }}
-        DEST_USERNAME: >-
-          ${{ inputs.destination_username != '' && inputs.destination_username || inputs.quay_username }}
-        DEST_PASSWORD: >-
-          ${{ inputs.destination_password != '' && inputs.destination_password || inputs.quay_password }}
+          ${{ inputs.promote_to_destination == 'true' && 'true' || 'false' }}
+        DEST_REGISTRY: ${{ inputs.destination_registry }}
+        DEST_REPOSITORY: ${{ inputs.destination_repository }}
+        DEST_TAG: ${{ inputs.destination_tag }}
+        DEST_USERNAME: ${{ inputs.destination_username }}
+        DEST_PASSWORD: ${{ inputs.destination_password }}
         TRUST_MODE: ${{ inputs.trust_mode }}
         SIGN_DESTINATION: ${{ inputs.sign_destination }}
         VERIFY_DESTINATION: ${{ inputs.verify_destination }}
@@ -401,11 +372,11 @@ runs:
         fi
 
         if [[ -z "${DEST_REPOSITORY}" || -z "${DEST_USERNAME}" || -z "${DEST_PASSWORD}" ]]; then
-          echo "::error::destination_repository (or quay_image), destination_username (or quay_username), and destination_password (or quay_password) are required when promotion is enabled."
+          echo "::error::destination_repository, destination_username, and destination_password are required when promote_to_destination is true."
           exit 1
         fi
         if [[ -z "${DEST_REGISTRY}" ]]; then
-          echo "::error::destination_registry (or quay_registry) is required when promotion is enabled."
+          echo "::error::destination_registry is required when promote_to_destination is true."
           exit 1
         fi
         if [[ -z "${PASSWORD}" ]]; then

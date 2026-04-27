@@ -38,8 +38,8 @@ flowchart LR
 
 ## Promotion and trust
 
-- Set `promote_to_destination: "true"` (preferred) or legacy `promote_to_quay: "true"` to copy the
-  published tag to **`destination_*`** credentials (for example GHCR → Quay or GHCR → another org registry).
+- Set `promote_to_destination: "true"` and **`destination_*`** inputs to copy the published tag to a
+  second registry (for example GHCR → Quay or GHCR → another org registry).
 - Standard path defaults (no extra inputs needed):
   - `trust_mode: resign`
   - `sign_destination: "true"`
@@ -61,8 +61,8 @@ flowchart LR
 | `registry`, `repository`, `tag` | Source destination for publish. |
 | `username`, `password` | Source registry auth. |
 | `sign_source`, `verify_source` | Source signature controls. |
-| `promote_to_destination` | Enable promotion to `destination_*` (legacy: `promote_to_quay`). |
-| `destination_registry`, `destination_repository`, `destination_tag`, `destination_username`, `destination_password` | Destination registry host, path without host, optional tag override, credentials. Legacy `quay_*` inputs are deprecated aliases (coalesced when the new inputs are empty). |
+| `promote_to_destination` | Enable promotion to `destination_*`. |
+| `destination_registry`, `destination_repository`, `destination_tag`, `destination_username`, `destination_password` | Destination registry host, path without host, optional tag override, credentials. |
 | `cosign_certificate_oidc_issuer` | Expected OIDC issuer for `cosign verify` (defaults to GitHub Actions). |
 | `trust_mode` | `copy-only`, `copy-referrers`, or `resign`. |
 | `verify_destination` | Destination signature verification control. |

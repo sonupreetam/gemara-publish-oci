@@ -158,7 +158,7 @@ enabled, it SHALL write destination digest/reference outputs and trust/verificat
 
 #### Scenario: Promotion outputs emitted
 
-- **WHEN** promotion (`promote_to_destination` or legacy `promote_to_quay`) is enabled and succeeds
+- **WHEN** `promote_to_destination` is enabled and succeeds
 - **THEN** `destination_ref` and `destination_digest` SHALL be emitted and non-empty
 
 ### Requirement: Destination trust mode

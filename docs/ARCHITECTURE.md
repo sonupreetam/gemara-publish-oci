@@ -28,7 +28,7 @@ The GitHub Action provides what CI needs as a standardized contract in **`action
 |---------|-----------|-------|
 | Publish source | `layout-copy`, `sdk`, `gemara-file` | `gemara-file` bridges callers that only have root bundle YAML. |
 | Source trust | `sign_source`, `verify_source` | Keyless cosign against source digest. |
-| Promotion | `promote_to_destination` (+ `destination_*`; legacy `promote_to_quay` / `quay_*`) | Copies source tag to destination tag on another registry host. |
+| Promotion | `promote_to_destination`, `destination_*` | Copies source tag to destination tag on another registry host. |
 | Destination trust | `trust_mode` + destination sign/verify toggles | Standard path uses `resign`; `copy-referrers` remains optional compatibility mode. |
 
 ## Current demo branch data flow

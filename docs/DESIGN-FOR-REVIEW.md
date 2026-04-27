@@ -130,7 +130,7 @@ Implementation: single composite step in **`action.yml`** (see repository root).
 | `username`, `password` | Registry auth (`password` omitted only when `plain_http: true`) |
 | `oras_version` | ORAS CLI release (layout path + digest resolution) |
 | `sign_source`, `verify_source` | Source trust controls |
-| `promote_to_destination`, `destination_*` (legacy `promote_to_quay`, `quay_*`) | Destination promotion and auth controls |
+| `promote_to_destination`, `destination_*` | Destination promotion and auth controls |
 | `trust_mode`, `sign_destination`, `verify_destination` | Destination trust controls (`resign` is the standard path) |
 | `allowed_identity_regex`, `cosign_certificate_oidc_issuer`, `cosign_version` | Signature verification policy and tooling pinning |
 | `plain_http` | For HTTP registries (e.g. CI against `localhost:5000`) |
