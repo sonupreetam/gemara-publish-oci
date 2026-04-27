@@ -3,8 +3,8 @@ name: CI
 on:
   workflow_dispatch:
     inputs:
-      run_quay_spike:
-        description: Run GHCR -> Quay trust-mode spike jobs
+      run_quay_promotion:
+        description: Run GHCR -> Quay standard re-sign promotion path
         required: false
         type: boolean
         default: false
@@ -118,21 +118,11 @@ jobs:
           echo "source_ref=${{ steps.policy.outputs.source_ref }}"
           echo "source_digest=${{ steps.policy.outputs.source_digest }}"
 
-  e2e-ghcr-quay-trust-spike:
-    name: GHCR -> Quay trust-mode spike
+  e2e-ghcr-quay-resign-promotion:
+    name: GHCR -> Quay standard re-sign promotion
     needs: validate
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      && inputs.run_quay_spike
-      && !(
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name != github.repository
-      )
-    strategy:
-      fail-fast: false
-      matrix:
-        trust_mode: [copy-referrers, resign]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_quay_promotion }}
     permissions:
       contents: read
       id-token: write
@@ -145,14 +135,13 @@ jobs:
         run: |
           echo "repository_lc=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
-      - name: Run trust mode
-        id: trust
+      - name: Validate Quay credentials
         env:
           QUAY_USER: ${{ secrets.QUAY_ROBOT_USERNAME }}
           QUAY_TOKEN: ${{ secrets.QUAY_ROBOT_TOKEN }}
         run: |
           if [ -z "${QUAY_USER}" ] || [ -z "${QUAY_TOKEN}" ]; then
-            echo "::error::QUAY_ROBOT_USERNAME and QUAY_ROBOT_TOKEN are required for spike runs."
+            echo "::error::QUAY_ROBOT_USERNAME and QUAY_ROBOT_TOKEN are required for Quay promotion runs."
             exit 1
           fi
 
@@ -163,25 +152,20 @@ jobs:
           publish_mode: layout-copy
           registry: ghcr.io
           repository: ${{ steps.reg.outputs.repository_lc }}
-          tag: spike-${{ matrix.trust_mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          tag: policy-resign-${{ github.run_id }}-${{ github.run_attempt }}
           oci_layout_path: testdata/minimal-layout
           layout_ref: v1
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          sign_source: "true"
-          verify_source: "true"
           promote_to_quay: "true"
           quay_registry: quay.io
           quay_image: ${{ inputs.quay_dest_image }}
           quay_username: ${{ secrets.QUAY_ROBOT_USERNAME }}
           quay_password: ${{ secrets.QUAY_ROBOT_TOKEN }}
-          trust_mode: ${{ matrix.trust_mode }}
-          sign_destination: ${{ matrix.trust_mode == 'resign' && 'true' || 'false' }}
-          verify_destination: "true"
 
-      - name: Print spike result
+      - name: Print promotion result
         run: |
-          echo "trust_mode=${{ matrix.trust_mode }}"
+          echo "trust_mode=resign"
           echo "source_ref=${{ steps.publish.outputs.source_ref }}"
           echo "destination_ref=${{ steps.publish.outputs.destination_ref }}"
           echo "verified_source=${{ steps.publish.outputs.verified_source }}"

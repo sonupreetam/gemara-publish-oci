@@ -5,7 +5,7 @@ GitHub Action for standardized Gemara OCI publishing:
 1. Publish to a source registry (GHCR or compatible).
 2. Keyless sign + verify source digest.
 3. Optionally promote to Quay.
-4. Optionally verify trust on destination (`copy-referrers` or `resign` model).
+4. Verify trust on destination using the standard re-sign model (default).
 
 The action still does not define Gemara bundle semantics; manifest/media-type ownership remains in
 [go-gemara](https://github.com/gemaraproj/go-gemara).
@@ -20,11 +20,14 @@ The action still does not define Gemara bundle semantics; manifest/media-type ow
 
 ## Promotion and trust
 
-- Set `promote_to_quay: "true"` to copy source image to Quay.
-- `trust_mode` options:
+- Set `promote_to_quay: "true"` to run the standard GHCR -> Quay promotion path.
+- Standard path defaults (no extra inputs needed):
+  - `trust_mode: resign`
+  - `sign_destination: "true"`
+  - `verify_destination: "true"`
+- Optional compatibility trust modes remain available:
   - `copy-only`: copy payload tag only.
   - `copy-referrers`: recursive copy to include referrer graph when registry support is available.
-  - `resign` (default): copy then keyless-sign destination digest.
 - Source and destination verification use Fulcio issuer
   `https://token.actions.githubusercontent.com`.
 
@@ -80,7 +83,6 @@ jobs:
           quay_image: continuouscompliance/complytime-policies
           quay_username: ${{ secrets.QUAY_ROBOT_USERNAME }}
           quay_password: ${{ secrets.QUAY_ROBOT_TOKEN }}
-          trust_mode: resign
 ```
 
 ## Pinning

@@ -18,7 +18,7 @@ The GitHub Action provides what CI needs as a standardized contract in **`action
 - Secrets and **`oras login`** for source and destination registries.
 - Publish entrypoints (`layout-copy`, `sdk`, `gemara-file` compatibility mode).
 - Keyless cosign sign/verify for source and destination digests.
-- Optional GHCR -> Quay promotion with trust model controls.
+- Standard GHCR -> Quay promotion with destination re-sign trust (defaults).
 - Structured `GITHUB_OUTPUT` values for source/destination refs and verification state.
 
 ## Publish and promotion model
@@ -28,7 +28,7 @@ The GitHub Action provides what CI needs as a standardized contract in **`action
 | Publish source | `layout-copy`, `sdk`, `gemara-file` | `gemara-file` bridges callers that only have root bundle YAML. |
 | Source trust | `sign_source`, `verify_source` | Keyless cosign against source digest. |
 | Promotion | `promote_to_quay` | Copies source tag to destination tag. |
-| Destination trust | `trust_mode` + destination sign/verify toggles | `copy-referrers` for recursive copy, `resign` for explicit destination trust anchor. |
+| Destination trust | `trust_mode` + destination sign/verify toggles | Standard path uses `resign`; `copy-referrers` remains optional compatibility mode. |
 
 ## Why this keeps SDK boundaries intact
 

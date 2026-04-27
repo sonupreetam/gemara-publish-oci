@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|--------|
-| **Status** | Draft — Option 3 orchestration implemented in composite action |
+| **Status** | Draft — Option 3 standard re-sign promotion path implemented in composite action |
 | **Primary reviewers** | Gemara / go-gemara maintainers |
 | **Related upstream work** | [go-gemara#60 — Standardize Artifact Packaging and Distribution via OCI](https://github.com/gemaraproj/go-gemara/issues/60) |
 | **Repository** | `OWNER/gemara-publish-oci` on GitHub (e.g. under a personal account or **`gemaraproj`** after transfer) |
@@ -61,7 +61,7 @@ flowchart TB
     Publish[publish_mode entrypoint]
     SignSrc[sign and verify source]
     Promote[promote to Quay]
-    Trust[copy-referrers or resign destination]
+    Trust[standard re-sign destination trust]
     Out[refs and digest outputs]
   end
   subgraph ci [Caller workflow]
@@ -119,7 +119,7 @@ Implementation: single composite step in **`action.yml`** (see repository root).
 | `oras_version` | ORAS CLI release (layout path + digest resolution) |
 | `sign_source`, `verify_source` | Source trust controls |
 | `promote_to_quay`, `quay_*` | Destination promotion and auth controls |
-| `trust_mode`, `sign_destination`, `verify_destination` | Destination trust controls |
+| `trust_mode`, `sign_destination`, `verify_destination` | Destination trust controls (`resign` is the standard path) |
 | `allowed_identity_regex`, `cosign_version` | Signature verification and tooling pinning |
 | `plain_http` | For HTTP registries (e.g. CI against `localhost:5000`) |
 
@@ -176,7 +176,7 @@ For interoperability with a future **`gemara`** CLI, the Action sets:
 
 ## 9. Questions for review (Gemara / SDK)
 
-1. Should `resign` remain the default trust mode once registry-wide referrer copy behavior is proven?
+1. Should `copy-referrers` remain a supported compatibility mode now that re-sign is the standard path?
 2. Should `gemara-file` remain as compatibility mode long-term, or be replaced by stable `sdk` usage?
 3. What minimum caller permissions contract should be enforced by policy checks across org repos?
 
