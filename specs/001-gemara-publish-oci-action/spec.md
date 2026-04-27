@@ -2,7 +2,10 @@
 
 ## Document overview
 
-This specification describes the **composite** GitHub Action shipped from this repository (`action.yml`): **pinned ORAS CLI**, **`oras login`** with caller-provided credentials, publish from an **OCI image layout** (`layout-copy`) or delegation to an **optional `gemara` CLI** (`sdk`), and exposure of the pushed manifest **`digest`** via **`GITHUB_OUTPUT`** (surfaced as the Action output `digest`).
+This specification describes the **composite** GitHub Action shipped from this repository
+(`action.yml`): publish from an OCI layout, optional SDK CLI invocation, or file-based bundle
+compatibility mode, plus keyless sign/verify and optional GHCR -> Quay promotion with explicit
+trust modes.
 
 **Key metadata**
 
@@ -20,13 +23,16 @@ CI callers need a **small, auditable** Action that:
 1. Installs a **specific ORAS release** without requiring consumers to maintain separate install steps.
 2. Authenticates to the registry using **secrets the workflow supplies** (`oras login`), without echoing tokens.
 3. Publishes a bundle that already exists as a valid **OCI image layout** (`oras cp --from-oci-layout`), **or** runs a **pre-installed `gemara` (or compatible) binary** once the SDK exposes a stable push CLI.
-4. Emits a **`sha256:…`** (or equivalent) **digest** for downstream signing, promotion, or verification jobs.
+4. Emits stable outputs for source/destination refs, digests, and verification state for downstream
+   release jobs.
 
 ## Core user scenarios
 
-### Priority 1: Layout copy to GHCR (default)
+### Priority 1: Full publish orchestration for callers
 
-A maintainer checks out the repo, produces an OCI layout on disk (e.g. from Pack or another job), then calls this Action with `publish_mode: layout-copy`, `oci_layout_path`, `layout_ref`, `registry`, `repository`, `tag`, and `password` (for example `${{ secrets.GITHUB_TOKEN }}` for GHCR). The Action installs ORAS, logs in, runs `oras cp --from-oci-layout`, and sets `outputs.digest`.
+A maintainer calls the action once with publish settings and trust settings; the action publishes to
+source, signs/verifies source digest, optionally promotes to Quay, and returns source/destination
+outputs.
 
 **Test coverage:** `.github/workflows/ci.yml` publishes `testdata/minimal-layout` to a local registry and asserts `steps.publish.outputs.digest` is non-empty.
 
@@ -36,7 +42,17 @@ Once a **`gemara`** (or compatible) CLI is available on the runner `PATH` or as 
 
 **Test coverage:** optional stub or real CLI job (see [tasks.md](tasks.md)); until stable, **layout-copy** remains the recommended path.
 
-### Priority 3: Local or HTTP registry (CI)
+### Priority 3: Destination trust behavior
+
+Callers can choose trust mode:
+
+- `copy-only`
+- `copy-referrers`
+- `resign` (default)
+
+and verify destination trust with the same workflow identity constraints.
+
+### Priority 4: Local or HTTP registry (CI)
 
 For `localhost` registries, the caller sets `plain_http: true` so the Action skips HTTPS login and uses ORAS plain-HTTP flags consistent with the implementation.
 
@@ -44,7 +60,7 @@ For `localhost` registries, the caller sets `plain_http: true` so the Action ski
 
 - **Missing layout:** Fail before copy if `index.json` is absent.
 - **HTTPS without password:** Fail with a clear error (unless `plain_http: true`).
-- **Digest resolution:** Prefer `oras resolve` on the destination reference; fall back to parsing `oras cp` output when needed.
+- **Digest resolution:** Use `oras resolve` on source/destination references and fail fast if unavailable.
 - **Username default:** When using password auth, default username behavior matches `action.yml` / README (e.g. `GITHUB_ACTOR` when username omitted).
 
 ## Functional requirements summary
@@ -55,13 +71,17 @@ The Action must:
 2. **Login** with `oras login` for HTTPS when `password` is supplied; **skip login** for `plain_http: true` as implemented.
 3. **`layout-copy`:** Require `layout_ref` and a valid layout directory; run `oras cp --from-oci-layout` to `registry/repository:tag`.
 4. **`sdk`:** Require `gemara_binary`; export `GEMARA_*` env vars; invoke the binary with `sdk_args`.
-5. **Output digest:** Append `digest=…` to `GITHUB_OUTPUT` and expose it as the composite output `digest`; fail if digest cannot be determined.
+5. **Optional promotion:** copy source -> Quay with selected trust mode and destination checks.
+6. **Output contract:** append source/destination refs, digests, and verification booleans to
+   `GITHUB_OUTPUT`.
 
 ## Scope boundaries
 
-**In scope:** ORAS install pin, registry auth glue, layout copy, optional CLI invocation, digest output.
+**In scope:** ORAS install pin, registry auth glue, publish modes, sign/verify orchestration,
+optional promotion, structured outputs.
 
-**Out of scope:** Gemara YAML validation, layer `mediaType` tables, Pack/Unpack implementation, SLSA/SBOM/cosign (caller or org-infra–style workflows), vendoring `gemara` inside this Action.
+**Out of scope:** Gemara YAML schema ownership, layer `mediaType` tables, Pack/Unpack
+implementation details, vendoring a full SDK publish implementation in bash.
 
 ## Formal requirements (SHALL / scenarios)
 
@@ -126,14 +146,30 @@ In `publish_mode` `sdk`, the Action SHALL require `gemara_binary` to reference a
 - **WHEN** `publish_mode` is `sdk` and `gemara_binary` is empty
 - **THEN** the Action SHALL fail with an error stating `gemara_binary` is required
 
-### Requirement: Digest output
+### Requirement: Source and destination output contract
 
-After a successful publish, the Action SHALL write exactly one `digest` line to `GITHUB_OUTPUT` in the form `digest=<algorithm>:<hex>` (e.g. `sha256:…`) representing the manifest digest for `registry/repository:tag`, and SHALL fail if a digest cannot be determined.
+After a successful publish, the Action SHALL write source digest/reference outputs. If promotion is
+enabled, it SHALL write destination digest/reference outputs and trust/verification statuses.
 
-#### Scenario: Digest available to downstream steps
+#### Scenario: Outputs available to downstream steps
 
 - **WHEN** publish completes successfully
-- **THEN** the composite output `digest` SHALL equal the value written to `GITHUB_OUTPUT` and SHALL be non-empty
+- **THEN** `digest`, `source_digest`, and `source_ref` SHALL be non-empty outputs
+
+#### Scenario: Promotion outputs emitted
+
+- **WHEN** promotion (`promote_to_destination` or legacy `promote_to_quay`) is enabled and succeeds
+- **THEN** `destination_ref` and `destination_digest` SHALL be emitted and non-empty
+
+### Requirement: Destination trust mode
+
+When promotion is enabled, the Action SHALL honor `trust_mode` (`copy-only`,
+`copy-referrers`, `resign`) and SHALL fail for unsupported values.
+
+#### Scenario: Resign destination
+
+- **WHEN** `trust_mode` is `resign`
+- **THEN** the destination digest SHALL be signed and verifiable per configured identity policy
 
 ## Success metrics
 
