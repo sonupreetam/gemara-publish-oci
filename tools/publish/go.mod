@@ -1,15 +1,12 @@
 module github.com/sonupreetam/gemara-publish-oci/tools/publish
 
-// PR #62 (bundle Pack/Assemble + oras-go): gemaraproj/go-gemara@v0.3.0 and @main
-// (checked 2026-04-21) do not ship github.com/gemaraproj/go-gemara/bundle yet.
-// Pin this pseudo-version from github.com/jpower432/go-gemara until a gemaraproj
-// tag contains the bundle package (tasks.md T020).
+// Bundle Pack/Assemble + oras-go: use gemaraproj/go-gemara v0.4.0+ (merged PR #62).
 go 1.25.0
 
 toolchain go1.25.8
 
 require (
-	github.com/gemaraproj/go-gemara v0.3.0
+	github.com/gemaraproj/go-gemara v0.4.0
 	oras.land/oras-go/v2 v2.6.0
 )
 
@@ -19,5 +16,3 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 )
-
-replace github.com/gemaraproj/go-gemara => github.com/jpower432/go-gemara v0.0.0-20260421170629-16131cd8eb65
