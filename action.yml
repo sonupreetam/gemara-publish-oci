@@ -373,11 +373,14 @@ runs:
         set -euo pipefail
         cd "${GITHUB_WORKSPACE}/${{ inputs.working_directory }}"
         FILE="$(realpath "${{ inputs.file }}")"
+        ROOT_DIR="$(dirname "$FILE")"
         VALIDATE_FLAG=""
         if [[ "${{ inputs.validate }}" != "true" ]]; then
           VALIDATE_FLAG="-validate=false"
         fi
-        go run -C "${{ github.action_path }}/tools/publish" . \
+        go build -C "${{ github.action_path }}/tools/publish" -o "${RUNNER_TEMP}/gemara-publish" .
+        cd "$ROOT_DIR"
+        "${RUNNER_TEMP}/gemara-publish" \
           -registry="${{ inputs.registry }}" \
           -repository="${{ inputs.repository }}" \
           -tag="${{ inputs.tag }}" \

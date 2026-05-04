@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command publish implements go-gemara bundle Assemble → Pack → oras.Copy to a registry
-// (see gemaraproj/go-gemara bundle APIs and OCI distribution). This entrypoint is invoked
-// from the composite GitHub Action so callers do not maintain a separate publish binary.
+// Command publish uses the go-gemara bundle SDK (Assemble → Pack) and
+// oras.Copy to push a Gemara artifact to an OCI registry. The caller
+// (action.yml) MUST run this program from the root file's parent
+// directory so relative mapping-reference URLs resolve correctly.
 package main
 
 import (
@@ -26,11 +27,11 @@ func main() {
 	registry := flag.String("registry", "", "registry host (e.g. ghcr.io)")
 	repository := flag.String("repository", "", "repository path without host (e.g. org/bundles/my-policy)")
 	tag := flag.String("tag", "", "tag to apply on the remote repository")
-	file := flag.String("file", "", "absolute path to the root Gemara YAML file")
+	file := flag.String("file", "", "root Gemara YAML file (relative to CWD or absolute)")
 	username := flag.String("username", "", "registry username")
 	bundleVersion := flag.String("bundle-version", "1", "bundle manifest bundle-version")
 	gemaraVersion := flag.String("gemara-version", "", "bundle manifest gemara-version (optional)")
-	validate := flag.Bool("validate", true, "run gemara.Load-style validation before assemble")
+	validate := flag.Bool("validate", true, "run gemara.Load schema validation before assemble")
 	flag.Parse()
 
 	password := os.Getenv("GEMARA_REGISTRY_PASSWORD")
@@ -47,6 +48,7 @@ func main() {
 	}
 
 	ctx := context.Background()
+
 	if *validate {
 		if err := validateRoot(ctx, *file, data); err != nil {
 			fmt.Fprintf(os.Stderr, "validate: %v\n", err)
@@ -54,15 +56,18 @@ func main() {
 		}
 	}
 
+	// Assemble: walk imports/mapping-references, fetch dependencies.
+	// CWD must be the root file's directory for relative url: paths.
 	src := bundle.File{Name: filepath.Base(*file), Data: data}
 	m := bundle.Manifest{BundleVersion: *bundleVersion, GemaraVersion: *gemaraVersion}
-	asm := bundle.NewAssembler(&fetcher.URI{})
+	asm := bundle.NewAssembler(&fetcher.File{})
 	b, err := asm.Assemble(ctx, m, src)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "assemble: %v\n", err)
 		os.Exit(1)
 	}
 
+	// Pack into an in-memory OCI store.
 	store := memory.New()
 	desc, err := bundle.Pack(ctx, store, b)
 	if err != nil {
@@ -70,6 +75,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Push to remote registry.
 	repoRef := fmt.Sprintf("%s/%s", *registry, *repository)
 	repo, err := remote.NewRepository(repoRef)
 	if err != nil {
@@ -85,18 +91,12 @@ func main() {
 		}),
 	}
 
-	copyOpts := oras.DefaultCopyOptions
-	const localRootRef = "gemara-publish/__root__"
-	srcRef := desc.Digest.String()
-	if _, err := store.Resolve(ctx, srcRef); err != nil {
-		if tagErr := store.Tag(ctx, desc, localRootRef); tagErr != nil {
-			fmt.Fprintf(os.Stderr, "resolve %q in local store: %v; tag %s: %v\n", srcRef, err, localRootRef, tagErr)
-			os.Exit(1)
-		}
-		srcRef = localRootRef
+	if err := store.Tag(ctx, desc, *tag); err != nil {
+		fmt.Fprintf(os.Stderr, "tag local store: %v\n", err)
+		os.Exit(1)
 	}
-	if _, err := oras.Copy(ctx, store, srcRef, repo, *tag, copyOpts); err != nil {
-		fmt.Fprintf(os.Stderr, "oras copy (from %s): %v\n", srcRef, err)
+	if _, err := oras.Copy(ctx, store, *tag, repo, *tag, oras.DefaultCopyOptions); err != nil {
+		fmt.Fprintf(os.Stderr, "oras copy: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -127,36 +127,22 @@ func writeGitHubOutput(key, value string) error {
 	return err
 }
 
-func validateRoot(ctx context.Context, path string, data []byte) error {
+// validateRoot runs gemara.Load schema validation on the root file.
+// This catches enum errors (e.g. invalid MethodType) that the assembler's
+// structural parse does not check.
+func validateRoot(ctx context.Context, filePath string, data []byte) error {
 	t, err := gemara.DetectType(data)
 	if err != nil {
 		return fmt.Errorf("detect type: %w", err)
 	}
-
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".gemara-validate-*.yaml")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()        //nolint:errcheck,gosec
-		os.Remove(tmpPath) //nolint:errcheck
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath) //nolint:errcheck
-		return err
-	}
-	defer os.Remove(tmpPath) //nolint:errcheck
-
 	f := &fetcher.File{}
 	switch t {
 	case gemara.PolicyArtifact:
-		_, err = gemara.Load[gemara.Policy](ctx, f, tmpPath)
+		_, err = gemara.Load[gemara.Policy](ctx, f, filePath)
 	case gemara.GuidanceCatalogArtifact:
-		_, err = gemara.Load[gemara.GuidanceCatalog](ctx, f, tmpPath)
+		_, err = gemara.Load[gemara.GuidanceCatalog](ctx, f, filePath)
 	default:
-		_, err = gemara.Load[gemara.ControlCatalog](ctx, f, tmpPath)
+		_, err = gemara.Load[gemara.ControlCatalog](ctx, f, filePath)
 	}
 	return err
 }
