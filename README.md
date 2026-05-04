@@ -1,10 +1,12 @@
 # gemara-publish-oci
 
-GitHub Action for Gemara OCI publish and trust orchestration. Phases (single `uses:`; toggles control each phase):
+GitHub Action for Gemara OCI publish and trust orchestration. Uses the
+[go-gemara](https://github.com/gemaraproj/go-gemara) bundle SDK (`Assemble` + `Pack`)
+and ORAS to push a root Gemara YAML (Policy, Catalog, or Guidance) as an OCI bundle.
 
 | Phase | What it does |
 |--------|----------------|
-| **1 — Publish** | Push to the **source** registry: `layout-copy` (ORAS from an OCI layout), `sdk` (your `gemara_binary`), or `gemara-file` (`tools/publish` + go-gemara). |
+| **1 — Publish** | Assemble dependencies, pack into OCI bundle, push to **source** registry via go-gemara + ORAS. |
 | **2 — Trust (source)** | Optional keyless **cosign** sign/verify on the **source** digest. |
 | **3 — Promote (optional)** | Optional **ORAS** copy to a **destination** registry with `trust_mode`. |
 | **4 — Trust (destination)** | Optional sign/verify on the **destination** digest when promotion and flags request it. |
@@ -19,25 +21,17 @@ GitHub Action for Gemara OCI publish and trust orchestration. Phases (single `us
 - **Branch / environment / approval** gates are **not** enforced inside the composite. Use **caller workflow** `if:` and GitHub **Environments** (see [Caller patterns](#caller-patterns) below).
 - Composites only receive **string** inputs. Boolean-like flags are the literal strings **`"true"`** and **`"false"`** (see table below).
 
-| Typical “boolean” input | Set to |
+| Typical "boolean" input | Set to |
 |------------------------|--------|
-| `sign_source`, `verify_source`, `plain_http`, `promote_to_destination`, `sign_destination`, `verify_destination` | `"true"` or `"false"` |
+| `sign_source`, `verify_source`, `promote_to_destination`, `sign_destination`, `verify_destination` | `"true"` or `"false"` |
 
 ### Caller patterns
 
 Reusable **workflows** can set `concurrency:`, `environment:`, and `if: github.ref_protected` on a **job**. A **composite** cannot—so apply these on the **job** (or parent workflow) that invokes this action:
 
 - **Concurrency:** add a `concurrency:` group on the publish job (for example keyed by `repository` + `tag` or by digest) so overlapping releases do not clobber one another.
-- **Protected branches / tags:** use `if: github.ref_protected` (or your org’s rules) on the same job for production releases.
+- **Protected branches / tags:** use `if: github.ref_protected` (or your org's rules) on the same job for production releases.
 - **Environments (manual approval):** set `environment: production` (or similar) on the **job** so the step that uses this action runs under environment protection rules, matching how org-infra sign workflows use `sign_environment`.
-
-## Publish modes (`publish_mode`)
-
-| Value | Behavior |
-|-------|----------|
-| `layout-copy` | Copy `oci_layout_path:layout_ref` with `oras cp --from-oci-layout`. |
-| `sdk` | Invoke `gemara_binary` + `sdk_args` and resolve digest from destination ref. |
-| `gemara-file` | Pack the root Gemara YAML with **go-gemara** (`tools/publish`; same module as callers `go run`), then push to the registry (no nested action). |
 
 ## Promotion and trust
 
@@ -61,8 +55,12 @@ Reusable **workflows** can set `concurrency:`, `environment:`, and `if: github.r
 
 | Input | Description |
 |-------|-------------|
+| `file` | Root Gemara artifact YAML (Policy, Catalog, or Guidance). **Required.** |
 | `registry`, `repository`, `tag` | Source destination for publish. |
 | `username`, `password` | Source registry auth. |
+| `validate` | Run `gemara.Load` schema validation before assemble (`"true"` / `"false"`). |
+| `bundle_version` | Bundle format version (default `"1"`). |
+| `working_directory` | Working directory relative to repo root for resolving `file`. |
 | `sign_source`, `verify_source` | Source signature controls. |
 | `promote_to_destination` | Enable promotion to `destination_*`. |
 | `destination_registry`, `destination_repository`, `destination_tag`, `destination_username`, `destination_password` | Destination registry host, path without host, optional tag override, credentials. |
@@ -83,7 +81,7 @@ Reusable **workflows** can set `concurrency:`, `environment:`, and `if: github.r
 | `verified_destination` | `true` if destination verify passed. |
 | `trust_mode` | Effective trust mode used. |
 
-## Minimal caller example (Option 3)
+## Minimal caller example
 
 ```yaml
 permissions:
@@ -99,24 +97,23 @@ jobs:
       - id: publish
         uses: complytime/oci-artifact@<pinned-sha>
         with:
-          publish_mode: gemara-file
           registry: ghcr.io
           repository: ${{ github.repository }}
           tag: ${{ github.ref_name }}
-          file: bundles/cis-fedora-l1-workstation.yaml
+          file: governance/policies/my-policy.yaml
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           promote_to_destination: "true"
           destination_registry: quay.io
-          destination_repository: continuouscompliance/complytime-policies
+          destination_repository: myorg/my-policies
           destination_username: ${{ secrets.QUAY_ROBOT_USERNAME }}
           destination_password: ${{ secrets.QUAY_ROBOT_TOKEN }}
 ```
 
 ## Repository layout
 
-- **`tools/publish/`** — small Go CLI used **only** when `publish_mode: gemara-file`. It wires `bundle.Assemble` / `bundle.Pack` and `oras.Copy`; SDK semantics stay in **go-gemara** `v0.4.0+`.
-- **`testdata/minimal-layout/`** — tiny OCI layout for **this repo’s CI** (`layout-copy`). It is not part of the action runtime for consumers.
+- **`tools/publish/`** — small Go program used by the action. It wires `bundle.Assemble` / `bundle.Pack` and `oras.Copy`; SDK semantics stay in **go-gemara** `v0.4.0+`.
+- **`testdata/`** — minimal Gemara catalog for CI validation and assembly tests.
 
 ## Pinning
 

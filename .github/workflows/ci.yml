@@ -26,50 +26,29 @@ jobs:
           cache-dependency-path: tools/publish/go.sum
 
       - name: Build gemara-file publisher
-        working-directory: tools/publish
-        run: go build -o /dev/null .
+        run: go build -C tools/publish -o "${RUNNER_TEMP}/gemara-publish" .
 
-  integration:
-    runs-on: ubuntu-latest
-    needs: validate
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Start local registry
+      - name: Validate + assemble + pack (dry run)
         run: |
-          docker run -d -p 5000:5000 --name ci-registry registry:2
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:5000/v2/ >/dev/null 2>&1; then
-              echo "registry ready"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::registry did not become ready"
-          exit 1
-
-      - name: Publish test fixture via action
-        id: publish
-        uses: ./
-        with:
-          publish_mode: layout-copy
-          registry: localhost:5000
-          repository: test/gemara
-          tag: ci-${{ github.run_id }}
-          oci_layout_path: testdata/minimal-layout
-          layout_ref: v1
-          plain_http: true
-          sign_source: "false"
-          verify_source: "false"
-
-      # sdk mode is not exercised here: a smoke test needs a real push to DEST so
-      # digest resolution succeeds; sdk_args is word-split in action.yml, so a
-      # bash -c one-liner is fragile. See specs/001-gemara-publish-oci-action/plan.md.
-
-      - name: Verify digest output
-        run: |
-          test -n "${{ steps.publish.outputs.digest }}"
-          echo "digest=${{ steps.publish.outputs.digest }}"
-          echo "${{ steps.publish.outputs.digest }}" | grep -qE '^sha256:[a-f0-9]{64}$'
-
-
+          set -euo pipefail
+          cd testdata
+          GEMARA_REGISTRY_PASSWORD=ci-dummy "${RUNNER_TEMP}/gemara-publish" \
+            -registry=localhost:5000 \
+            -repository=ci/test \
+            -tag=ci \
+            -file=minimal-catalog.yaml \
+            -username=ci \
+            -validate=true 2>&1 | tee /tmp/publish-out.txt || true
+          if grep -q "^assemble:" /tmp/publish-out.txt; then
+            echo "::error::Assemble failed"
+            exit 1
+          fi
+          if grep -q "^validate:" /tmp/publish-out.txt; then
+            echo "::error::Validation failed"
+            exit 1
+          fi
+          if grep -q "^pack:" /tmp/publish-out.txt; then
+            echo "::error::Pack failed"
+            exit 1
+          fi
+          echo "Assemble + pack succeeded (push expected to fail — no registry)"

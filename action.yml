@@ -1,21 +1,20 @@
-# Phases: (1) publish to source registry, (2) keyless sign/verify on source, (3) optional
-# promote, (4) sign/verify on destination. This action does not generate SLSA or SBOM
-# attestations—callers add those in separate workflow steps or reusables if required.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Phases: (1) assemble + pack + push via go-gemara, (2) keyless sign/verify on source,
+# (3) optional promote, (4) sign/verify on destination. This action does not generate
+# SLSA or SBOM attestations—callers add those in separate workflow steps or reusables.
 # See README: boundaries, and caller patterns (concurrency, ref gates, environments).
 name: Publish Gemara OCI bundle
 description: >-
-  Publish, sign, verify, and optionally copy to a caller-chosen destination registry (any OCI registry).
-  Inputs are mostly strings; boolean flags use the strings "true" / "false".
+  Assemble a root Gemara YAML into an OCI bundle, push to a registry, sign/verify,
+  and optionally promote to a second registry. Uses go-gemara bundle SDK internally.
+  Boolean flags use the strings "true" / "false".
 
 branding:
   icon: package
   color: blue
 
 inputs:
-  publish_mode:
-    description: layout-copy uses oras from a layout; sdk runs gemara_binary; gemara-file packs root YAML with tools/publish (go-gemara) and pushes
-    required: false
-    default: layout-copy
   registry:
     description: Registry host (e.g. ghcr.io)
     required: false
@@ -26,58 +25,32 @@ inputs:
   tag:
     description: Tag to push
     required: true
-  oci_layout_path:
-    description: OCI image layout directory (layout-copy)
-    required: false
-    default: ""
-  pack_path:
-    description: Fallback path if oci_layout_path is empty
-    required: false
-    default: "."
-  layout_ref:
-    description: oras cp PATH:REF (layout-copy only)
-    required: false
-    default: ""
-  gemara_binary:
-    description: gemara CLI path or name (sdk only)
-    required: false
-    default: ""
-  sdk_args:
-    description: Arguments for gemara_binary (sdk only)
-    required: false
-    default: ""
+  file:
+    description: Root Gemara artifact YAML (Policy, Catalog, or Guidance), relative to working_directory
+    required: true
   username:
     description: Registry user
     required: false
     default: ""
   password:
-    description: Registry token (omit with plain_http for HTTP registries only)
+    description: Registry token
+    required: true
+  validate:
+    description: Run gemara.Load schema validation before assemble
     required: false
-    default: ""
+    default: "true"
+  bundle_version:
+    description: Bundle format version
+    required: false
+    default: "1"
+  working_directory:
+    description: Working directory (relative to repo root) for resolving the file input
+    required: false
+    default: "."
   oras_version:
     description: ORAS CLI version (no v prefix)
     required: false
     default: "1.2.0"
-  plain_http:
-    description: Use HTTP to registry (e.g. localhost CI)
-    required: false
-    default: "false"
-  file:
-    description: Root Gemara bundle YAML (gemara-file mode)
-    required: false
-    default: ""
-  validate:
-    description: Validate bundle before packing (gemara-file mode)
-    required: false
-    default: "true"
-  bundle_version:
-    description: Bundle format version (gemara-file mode)
-    required: false
-    default: "1"
-  working_directory:
-    description: Working directory for gemara-file mode
-    required: false
-    default: "."
   sign_source:
     description: Keyless-sign source digest after publish
     required: false
@@ -171,11 +144,7 @@ runs:
     - name: Validate inputs
       shell: bash
       env:
-        PUBLISH_MODE: ${{ inputs.publish_mode }}
-        LAYOUT_REF: ${{ inputs.layout_ref }}
         FILE: ${{ inputs.file }}
-        GEMARA_BINARY: ${{ inputs.gemara_binary }}
-        PLAIN_HTTP: ${{ inputs.plain_http }}
         PASSWORD: ${{ inputs.password }}
         PROMOTE: ${{ inputs.promote_to_destination }}
         DEST_REPOSITORY: ${{ inputs.destination_repository }}
@@ -184,32 +153,12 @@ runs:
         TRUST_MODE: ${{ inputs.trust_mode }}
       run: |
         set -euo pipefail
-        PM="${PUBLISH_MODE:-layout-copy}"
-        case "$PM" in
-          layout-copy|sdk|gemara-file) ;;
-          *)
-            echo "::error::publish_mode must be one of: layout-copy, sdk, gemara-file (got: ${PM})"
-            exit 1
-            ;;
-        esac
-        if [[ "$PM" == "layout-copy" && -z "${LAYOUT_REF}" ]]; then
-          echo "::error::layout_ref is required when publish_mode is layout-copy"
+        if [[ -z "${FILE}" ]]; then
+          echo "::error::file input is required"
           exit 1
         fi
-        if [[ "$PM" == "gemara-file" && -z "${FILE}" ]]; then
-          echo "::error::file is required when publish_mode is gemara-file"
-          exit 1
-        fi
-        if [[ "$PM" == "sdk" && -z "${GEMARA_BINARY}" ]]; then
-          echo "::error::gemara_binary is required when publish_mode is sdk"
-          exit 1
-        fi
-        if [[ "${PLAIN_HTTP}" != "true" && -z "${PASSWORD}" ]]; then
-          echo "::error::password is required for HTTPS (set plain_http: true only for HTTP registries, e.g. local CI for layout-copy/sdk)"
-          exit 1
-        fi
-        if [[ "$PM" == "gemara-file" && "${PLAIN_HTTP}" == "true" ]]; then
-          echo "::error::gemara-file publishes over HTTPS; plain_http is not supported for this mode (use layout-copy with a prebuilt OCI layout for plain HTTP, or an HTTPS registry)"
+        if [[ -z "${PASSWORD}" ]]; then
+          echo "::error::password input is required"
           exit 1
         fi
         case "${TRUST_MODE}" in
@@ -239,133 +188,14 @@ runs:
       with:
         cosign-release: ${{ inputs.cosign_version }}
 
-    - name: Publish (layout-copy or sdk)
-      id: publish
-      if: ${{ inputs.publish_mode != 'gemara-file' }}
-      shell: bash
-      env:
-        PUBLISH_MODE: ${{ inputs.publish_mode }}
-        REGISTRY: ${{ inputs.registry }}
-        REPOSITORY: ${{ inputs.repository }}
-        TAG: ${{ inputs.tag }}
-        OCI_LAYOUT_PATH: ${{ inputs.oci_layout_path != '' && inputs.oci_layout_path || inputs.pack_path }}
-        LAYOUT_REF: ${{ inputs.layout_ref }}
-        GEMARA_BINARY: ${{ inputs.gemara_binary }}
-        SDK_ARGS: ${{ inputs.sdk_args }}
-        USERNAME: ${{ inputs.username }}
-        PASSWORD: ${{ inputs.password }}
-        PLAIN_HTTP: ${{ inputs.plain_http }}
-      run: |
-        set -euo pipefail
-        : "${GITHUB_OUTPUT:?}"
-
-        REGISTRY="${REGISTRY:?}"
-        REPOSITORY="${REPOSITORY:?}"
-        TAG="${TAG:?}"
-        DEST="${REGISTRY}/${REPOSITORY}:${TAG}"
-
-        PLAIN="${PLAIN_HTTP:-false}"
-        TO_FLAGS=()
-        RESOLVE_FLAGS=()
-        if [[ "$PLAIN" == "true" ]]; then
-          TO_FLAGS=(--to-plain-http)
-          RESOLVE_FLAGS=(--plain-http)
-        fi
-
-        registry_login() {
-          if [[ "$PLAIN" == "true" ]]; then return 0; fi
-          if [[ -n "${PASSWORD:-}" ]]; then
-            USER_L="${USERNAME:-}"
-            [[ -n "$USER_L" ]] || USER_L="${GITHUB_ACTOR:-oauth2}"
-            echo "$PASSWORD" | oras login "$REGISTRY" -u "$USER_L" --password-stdin
-          else
-            echo "::error::password required for HTTPS (or plain_http: true)"
-            exit 1
-          fi
-        }
-
-        # Emit registry digest as sha256:<64-hex> for stable downstream refs and cosign.
-        normalize_oci_digest() {
-          local d="${1//$'\r'/}"
-          d="${d//$'\n'/}"
-          d="${d,,}"
-          if [[ "$d" =~ ^sha256:[a-f0-9]{64}$ ]]; then
-            echo "$d"
-            return 0
-          fi
-          if [[ "$d" =~ ^[a-f0-9]{64}$ ]]; then
-            echo "sha256:$d"
-            return 0
-          fi
-          echo "::error::Expected sha256 manifest digest, got: $1" >&2
-          return 1
-        }
-
-        write_digest() {
-          local CP_OUT="$1"
-          local DIGEST
-          DIGEST=$(oras resolve "$DEST" "${RESOLVE_FLAGS[@]}" 2>/dev/null | tr -d '\r\n' || true)
-          [[ -n "$DIGEST" ]] || DIGEST=$(printf '%s\n' "$CP_OUT" | sed -n 's/^[[:space:]]*Digest:[[:space:]]*//p' | tail -1 | tr -d '\r\n')
-          if [[ -z "$DIGEST" ]]; then
-            echo "::error::Could not resolve digest"
-            exit 1
-          fi
-          if ! DIGEST=$(normalize_oci_digest "$DIGEST"); then
-            exit 1
-          fi
-          echo "digest=$DIGEST" >>"$GITHUB_OUTPUT"
-          echo "Published ${DEST} (${DIGEST})"
-        }
-
-        case "${PUBLISH_MODE:-layout-copy}" in
-        layout-copy)
-          OCI_LAYOUT_PATH="${OCI_LAYOUT_PATH:-.}"
-          if [[ ! -f "${OCI_LAYOUT_PATH}/index.json" ]]; then
-            echo "::error::No OCI layout at ${OCI_LAYOUT_PATH} (need index.json)"
-            exit 1
-          fi
-          LAYOUT_REF="${LAYOUT_REF:?layout_ref required for layout-copy}"
-          SRC="${OCI_LAYOUT_PATH}:${LAYOUT_REF}"
-          registry_login
-          set +e
-          CP_OUT=$(oras cp --from-oci-layout "$SRC" "$DEST" "${TO_FLAGS[@]}" 2>&1)
-          CP_RC=$?
-          set -e
-          printf '%s\n' "$CP_OUT"
-          [[ "$CP_RC" -eq 0 ]] || { echo "::error::oras cp failed ($CP_RC)"; exit "$CP_RC"; }
-          write_digest "$CP_OUT"
-          ;;
-        sdk)
-          [[ -n "${GEMARA_BINARY:-}" ]] || { echo "::error::gemara_binary required for sdk mode"; exit 1; }
-          GB="$GEMARA_BINARY"
-          [[ -x "$GB" ]] || command -v "$GB" &>/dev/null || { echo "::error::gemara_binary not found: $GB"; exit 1; }
-          [[ -x "$GB" ]] || GB=$(command -v "$GB")
-          export GEMARA_REGISTRY="$REGISTRY" GEMARA_REPOSITORY="$REPOSITORY" GEMARA_TAG="$TAG"
-          registry_login
-          set +e
-          CP_OUT=$("$GB" ${SDK_ARGS:-} 2>&1)
-          CP_RC=$?
-          set -e
-          printf '%s\n' "$CP_OUT"
-          [[ "$CP_RC" -eq 0 ]] || { echo "::error::gemara failed ($CP_RC)"; exit "$CP_RC"; }
-          write_digest "$CP_OUT"
-          ;;
-        *)
-          echo "::error::Unknown publish_mode: ${PUBLISH_MODE} (supported: layout-copy, sdk, gemara-file)"
-          exit 1
-          ;;
-        esac
-
-    - name: Set up Go (gemara-file)
-      if: ${{ inputs.publish_mode == 'gemara-file' }}
+    - name: Set up Go
       uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
       with:
         go-version-file: ${{ github.action_path }}/tools/publish/go.mod
         cache-dependency-path: ${{ github.action_path }}/tools/publish/go.sum
 
-    - name: Publish (gemara-file)
-      id: publish_gemara
-      if: ${{ inputs.publish_mode == 'gemara-file' }}
+    - name: Publish
+      id: publish
       shell: bash
       env:
         GEMARA_REGISTRY_PASSWORD: ${{ inputs.password }}
@@ -398,8 +228,7 @@ runs:
         TAG: ${{ inputs.tag }}
         PASSWORD: ${{ inputs.password }}
         USERNAME: ${{ inputs.username }}
-        PUBLISH_DIGEST: ${{ steps.publish.outputs.digest }}
-        PUBLISH_GEMARA_DIGEST: ${{ steps.publish_gemara.outputs.digest }}
+        SOURCE_DIGEST: ${{ steps.publish.outputs.digest }}
         SIGN_SOURCE: ${{ inputs.sign_source }}
         VERIFY_SOURCE: ${{ inputs.verify_source }}
         PROMOTE: ${{ inputs.promote_to_destination }}
@@ -434,10 +263,6 @@ runs:
           return 1
         }
 
-        SOURCE_DIGEST="${PUBLISH_DIGEST:-}"
-        if [[ -z "${SOURCE_DIGEST}" ]]; then
-          SOURCE_DIGEST="${PUBLISH_GEMARA_DIGEST:-}"
-        fi
         if [[ -z "${SOURCE_DIGEST:-}" ]]; then
           echo "::error::No digest produced by publish step."
           exit 1
