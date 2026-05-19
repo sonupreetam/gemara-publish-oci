@@ -2,7 +2,7 @@ module github.com/complytime/oci-artifact/tools/publish
 
 go 1.25.0
 
-toolchain go1.25.8
+toolchain go1.26.3
 
 require (
 	github.com/gemaraproj/go-gemara v0.4.0
